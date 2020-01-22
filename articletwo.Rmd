@@ -1,0 +1,483 @@
+---
+title: "Hypertension and microbiome"
+author: "Joonatan Palmu"
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+output: html_document
+---
+	
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE, results='asis',
+                      cache=FALSE, warning=FALSE)
+knitr::opts_chunk$set(cache.path = 'cache/', output.dir="cache/",
+                      file.path = 'cache/', fig.path = 'cache/')
+
+options(max.print=100)
+
+dir.create("cache/", showWarnings = FALSE)
+dir.create("rds/", showWarnings = FALSE)
+dir.create("session/", showWarnings = FALSE)
+
+now <- format(Sys.time(), '%Y%m%d-%H%M%S')
+```
+
+```{r Command line arguments, include = FALSE, eval = FALSE}
+file <- paste0("session/", sort(list.files("session"), decreasing = TRUE)[1])
+message("Loading variables from file ", file)
+load(file)
+```
+
+# Importing libraries:
+
+```{r libraries, cache = FALSE}
+library(dplyr)
+library(tibble)
+library(phyloseq)
+library(nortest)
+library(microbiome)
+library(knitr)
+library(tidyr)
+library(vegan)
+library(reshape)
+library(parallel)
+library(officer)
+library(flextable)
+library(xtable)
+library(rvg)
+library(tableone)
+library(scales)
+library(ggplot2)
+library(egg)
+library(gridExtra)
+library(png)
+library(ggpubr)
+library(broom)
+library(ggfortify)
+library(RColorBrewer)
+library(gvlma)
+library(purrr)
+library(gtable)
+library(car)
+library(M3C)
+library(emmeans)
+library(DESeq2)
+library(ggeffects)
+library(pander)
+library(hexbin)
+```
+
+Session info
+ 
+```{r Session info}
+pander(sessionInfo(), compact = TRUE)
+```
+
+# Sources
+
+<details><summary>Functions</summary>
+
+```{r Functions}
+sourcefiles <- c("articletwo-officer.R",
+                 "articletwo-rrbiome.R",
+                 "articletwo-ggplot.R")
+```
+
+```{r import files, echo = FALSE}
+for (f in sourcefiles) {
+    source(f)
+}
+```
+
+```{r embbed files, echo = FALSE}
+xfun::embed_files(c("rrnmr.Rmd", sourcefiles))
+```
+
+</details>
+
+
+# Loading data
+	
+Loading descriptions for clinical data
+
+```{r variables, warning = FALSE}
+names.dset <- getdescriptions()
+```
+
+```{r temp}
+temp <- readRDS("data/phfinrisk_species_all_drop50k_2018-12-21.RDs")
+temp %>% meta %>% nrow
+```
+
+Loading phyloseq object
+
+```{r data}
+pseq.species <- import_filter_data("data/phfinrisk_species_all_drop50k_2018-12-21.RDs")
+pseq.genus <- import_filter_data("data/phfinrisk_genus_all_drop50k_2018-11-16.RDs")
+pseq.genus.coretaxa <- coretaxa(pseq.genus, detection = 0.1/100, prevalence = 1/100)
+```
+
+Species has average number of reads `r pseq.species %>% sample_sums %>% mean` and
+genus `r pseq.genus %>% sample_sums %>% mean`. Core has length 
+`r length(pseq.genus.coretaxa)`.
+
+At species level meta has dimensions (`r dim(meta(pseq.species))`) and
+there ntaxa is `r ntaxa(pseq.species)`. At genus level meta has
+dimensions (`r dim(meta(pseq.genus))`) and there ntaxa is 
+`r ntaxa(pseq.genus)`. 
+
+# Variables
+
+```{r my variables}
+var.BP <- c("MAP", "SYSTM", "DIASM", "PULSEPRESSURE", "HYPERTENSION")
+var.CL.min <- c("BL_AGE", "SEX")
+var.CL <- c("BL_AGE", "SEX", "BMI", "CURR_SMOKE", "Q57X", "PREVAL_DIAB",
+            "BL_USE_RX_C03","BL_USE_RX_C07", "BL_USE_RX_C08", "BL_USE_RX_C09")
+```
+
+# Heavy models
+
+### Bray curtis distance matrix
+
+```{r matrix calculation}
+if (!file.exists("rds/bray.dist.m.species.rds")) {
+    bray.dist.m.species <- calculate.beta.matrix(pseq.species)
+    saveRDS(bray.dist.m.species, file = "rds/bray.dist.m.species.rds")
+} else {
+    bray.dist.m.species  <- readRDS("rds/bray.dist.m.species.rds")
+}
+```
+
+### Beta diversity
+
+ ```{r adonis calculation}
+ if (!file.exists("rds/adonis.species.rds")) {
+     adonis.species <- calculate.betadiversity(pseq = pseq.species,
+                                               matrix = bray.dist.m.species,
+                                               vars = list("max" = var.CL,
+                                                            "min" = var.CL.min))
+     saveRDS(adonis.species, file = "rds/adonis.species.rds")
+ } else {
+     adonis.species  <- readRDS("rds/adonis.species.rds")
+ }
+```
+
+### PCoA
+
+```{r pcoa calculate}
+if (!file.exists("rds/pcoa.ordinate.rds")) {
+    pcoa.abundances <- microbiome::transform(pseq.species, 'compositional')
+    pcoa.ordinate <- ordinate(pcoa.abundances, method="PCoA", distance="bray")
+    saveRDS(pcoa.ordinate, file = "rds/pcoa.ordinate.rds")
+} else {
+    pcoa.ordinate <- readRDS("rds/pcoa.ordinate.rds")
+}
+```
+
+### DeSeq2
+
+```{r deseq2}
+if (!file.exists("rds/dds.rds") || !file.exists("rds/dds3.rds") || !file.exists("rds/ddsNa.rds")) {
+    pseq.genus.core.deseq <-  prune_taxa(pseq.genus.coretaxa, pseq.genus)
+
+    if (!file.exists("rds/dds.rds")) {
+        dds <- lapply(c2l(var.BP), function(x, pseq) {
+            dds.data <- phyloseq_to_deseq2(pseq, deseq.formula(x, var.CL))
+            DESeq(dds.data,
+                  test="Wald",
+                  fitType="parametric",
+                  parallel = TRUE,
+                  BPPARAM=MulticoreParam(16))
+        }, pseq = pseq.genus.core.deseq)
+        saveRDS(dds, file = "rds/dds.rds")
+    }
+    if (!file.exists("rds/dds3.rds")) {
+        dds3 <- lapply(deseq.list(var.CL, var.CL.min), function(x, pseq) {
+            dds.data <- phyloseq_to_deseq2(pseq, deseq.formula(x, "HYPERTENSION"))
+            DESeq(dds.data,
+                  test="Wald",
+                  fitType="parametric",
+                  parallel = TRUE,
+                  BPPARAM=MulticoreParam(16))
+        }, pseq = pseq.genus.core.deseq)
+        saveRDS(dds3, file = "rds/dds3.rds")
+    }
+    if (!file.exists("rds/ddsNa.rds")) {
+        ddsNa <- mclapply(c2l(var.BP), function(x) {
+            myDESeq(pseq = pseq.species,
+                    vars = c(x, var.CL),
+                    coreterm = "^Lactobacillus.*Bacteria")
+        }, mc.cores = length(var.BP))
+        saveRDS(ddsNa, file = "rds/ddsNa.rds")        
+    }
+} else {
+    dds <- readRDS(file = "rds/dds.rds")
+    dds3 <- readRDS(file = "rds/dds3.rds")
+    ddsNa <- readRDS(file = "rds/ddsNa.rds")
+}
+```
+
+# Results
+
+## Characteristics
+
+```{r Characteristics}
+characteristicsTable(meta(pseq.species)) %>% kable
+```
+
+<details><summary>Salt subset</summary>
+
+```{r Characteristics subset, echo = FALSE}
+pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE) %>%
+    meta %>%
+    characteristicsTable %>%
+    kable
+```
+
+</details>
+
+## Microbial diversity
+
+```{r alphabeta definitions}
+diversity <- diversities(pseq = pseq.species,
+                           vars = list("max" = var.CL, "min" = var.CL.min),
+                           betadiversity = adonis.species,
+                           names.dset = names.dset)
+```
+
+Results in minimum model of alpha diversity
+
+```{r talbe alpha div min}
+diversities.tidy(diversity) %>%
+    kable
+```
+
+```{r save grob}
+g.diversity <- plot.diversities(diversity)
+ggsave(file = "cache/alpha-beta.png", plot = g.diversity, height = 6, width = 9)
+```
+
+<img src="cache/alpha-beta.png" />
+
+## Principal coordinate analysis
+
+```{r pcoa plot}
+pcoa.plot <- pcoaplot(pcoa.ordinate)
+ggsave(file = "cache/pcoa-species.png", plot=pcoa.plot, height=3.0, width=6, units = "in", dpi = 300)
+```
+
+<img src="cache/pcoa-species.png" />
+
+## Associations for genera
+
+```{r deseq continuous}
+dset.deseq.signf <- deseqresults(dds, names.dset)
+g.deseq <- deseqheatmap(dset.deseq.signf)
+```
+
+Number of significant associations `r sum(pull(dset.deseq.signf, qval) < 0.05)` for 
+`r pull(dset.deseq.signf, Feature)  %>% unique %>% length` features.
+
+### Number of associations per covariate
+
+```{r results compare deseq2}
+map(dds3, ~sum(results(.x, name = "HYPERTENSION_1_vs_0")$padj < 0.05, na.rm = TRUE)) %>%
+    map_df(~as.data.frame(.x) %>% dplyr::rename(qval = .x), .id = "included") %>%
+    kable
+```
+
+## Associations for Lactobacillus species
+
+```{r lactobacillus species results}
+dset.deseq.signf.na <- deseqresults(ddsNa, names.dset)
+g.deseq.na <- deseqheatmap(dset.deseq.signf.na)
+```
+
+Number of significant associations `r sum(pull(dset.deseq.signf.na, qval) < 0.05)` for 
+`r dset.deseq.signf.na %>% nrow` features. Number of
+`r dset.deseq.signf.na %>% filter(log2FoldChange > 0) %>% nrow`
+association were positive.
+
+
+```{r deseq dual plot}
+g.deseqgenus <- gtable_frame(ggplotGrob(g.deseq + theme(legend.position = "none")),
+                  height = unit(length(unique((dset.deseq.signf$Feature))), 'mm'),
+                  width = unit(25, 'mm'))
+
+g.deseqspecies <- gtable_frame(ggplotGrob(g.deseq.na + theme(legend.position = c(0.7, 1.45))),
+                  height = unit(length(unique((dds.results$Feature))), 'mm'),
+                                width = unit(25, 'mm'))
+
+g.deseq <- arrangeGrob(g.deseqgenus, g.deseqspecies, ncol = 2)
+
+ggsave(file = "cache/deseq-full.png", plot = g.deseq, width = 14, height = 25, dpi = 300, unit = "cm")
+```
+
+<img src="cache/deseq-full.png" />
+
+
+## Salt subset
+
+## Association between genera and dU-NA
+
+```{r lacto deseq calculation}
+dds.salt <- myDESeq(pseq = pseq.genus,
+                    coretaxa = pseq.genus.coretaxa,
+                    vars = c("NA.", var.CL),
+                    saltsubset = TRUE)
+```
+
+Lactobacillus prevalence in subsample
+
+```{r lactobacillus prevalence}
+pseq.genus.salt <- pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE)
+pseq_prevalence(pseq.genus.salt)
+``` 
+
+```{r significant results for salt subset}
+dds.salt %>%
+    results(., name = "NA.", tidy = TRUE) %>%
+    dplyr::mutate(qval = p.adjust(pvalue, method="BH")) %>%
+    filter(row == "Lactobacillus (Bacteria)") %>%
+    kable
+```
+
+Graphical representation for findings
+
+```{r scatter plot from deseq}
+g.salt <- saltboxplot(pseq.genus.salt, dds.salt)
+ggsave(file = "cache/gsalt.png", plot = g.salt, height = 3, width = 3, dpi = 300)
+```
+
+<img src="cache/gsalt.png" />
+
+## Association between Lactobacilli and dU-NA
+
+```{r species salt}
+dds.salt.species <- myDESeq(pseq = pseq.species,
+                        vars = c("NA.", var.CL),
+                        coreterm = "^Lactobacillus.*Bacteria",
+                        saltsubset = TRUE)
+```
+
+Significant results after FDR correction
+
+```{r species salt results}
+dds.salt.species %>%
+    results(., name = "NA.", tidy = TRUE) %>%
+    dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
+                  row = renametaxa(row)) %>%
+    filter(qval < 0.05) %>%
+    kable
+```
+
+
+
+# Supplements
+
+Listing our "core" genera
+
+```{r write supplement}
+core.names.fourcols <- pseq.genus.coretaxa %>%
+    renametaxa %>%
+    sort %>%
+    list.partition %>%
+    mycbind 
+
+pseq.genus.coretaxa %>% length
+
+core.names.flextable <- flextable(core.names.fourcols) %>%
+    flextable::fontsize(size = 10, part = "header") %>%
+    flextable::fontsize(size = 10, part = "body") %>%
+    flextable::width(j=1:4, width = 1.8) %>%
+    flextable::align(align = "left", part = "header") %>%
+    flextable::align(align = "left")
+core.names.flextable
+```
+
+Listing results for alpha diversity
+
+```{r supplement table for alpha diversity}
+alphadiversity.table <- diversity %>% map_df(~as.data.frame(.x), .id = "model") %>%
+    mutate(mean_ci = sprintf("%.2f (%.2f - %.2f)", alpha.effect, alpha.low, alpha.high),
+           pubp = pub.p(alpha.p)) %>%
+    myspread(list = c2l("mean_ci", "pubp"), term = "Name", key = "model") %>%
+    arrange(match(Name, c("Systolic BP", "Diastolic BP", "Mean arterial pressure", "Pulse pressure", "Hypertension"))) %>%
+        select(Name, min_mean_ci, min_pubp, max_mean_ci, max_pubp)
+
+typology.tbls2 <- data.frame(
+    col_keys = colnames(alphadiversity.table),
+    what = c("", rep("Age- and sex adjusted model", 2), rep("Multivaraible adjusted model", 2)),
+    measure = c("", rep(c("beta (95%-CI)", "p"), 2)),
+    stringsAsFactors = FALSE)
+
+alphadiversity.flextable <-
+    typologyformatter(data = alphadiversity.table, font = 12, typology = typology.tbls2) %>%
+    flextable::width(j=1, width = 1.9) %>%
+    flextable::width(j=c(2:2,4:4), width = 1.8) %>%
+    flextable::width(j=c(3:3,5:5), width = 0.7)
+alphadiversity.flextable 
+```
+
+
+```{r supplement table for beta diversity}
+betadiversity.table <- diversity %>% map_df(~as.data.frame(.x), .id = "model") %>%
+    mutate(rsquared = sprintf("%.3f%%", beta.R2*100),
+           pubp = pub.p(beta.p)) %>%
+    myspread(list = c2l("rsquared", "pubp"), term = "Name", key = "model") %>%
+    arrange(match(Name, c("Systolic BP", "Diastolic BP", "Mean arterial pressure", "Pulse pressure", "Hypertension"))) %>%
+    select(Name, min_rsquared, min_pubp, max_rsquared, max_pubp)
+
+typology.tbls3 <- data.frame(
+    col_keys = colnames(betadiversity.table),
+    what = c("", rep("Age- and sex adjusted model", 2), rep("Multivaraible adjusted model", 2)),
+    measure = c("", rep(c("R2", "p"), 2)),
+    stringsAsFactors = FALSE)
+
+betadiversity.flextable <-
+    typologyformatter(data = betadiversity.table, font = 12, typology = typology.tbls3) %>%
+    flextable::width(j=1, width = 1.9) %>%
+    flextable::width(j=c(2:5), width = 0.8)
+
+betadiversity.flextable
+```
+
+```{r supplement table deseq}
+typology.tbls4 <- data.frame(
+    col_keys = colnames(deseq.table),
+    what = c("", rep("Systolic BP", 2), rep("Diastolic BP", 2),
+             rep("Pulse pressure", 2), rep("Mean arterial pressure", 2), rep("Hypertension", 2)),
+    measure = c("", rep(c("Log2FC±SE", "p"), 5)),
+    stringsAsFactors = FALSE)
+
+deseq.table <- dset.deseq.signf %>%
+    mutate(lfc_se = sprintf("%.2f±%.2f", log2FoldChange, lfcSE),
+           p.value = pub.p(qval)) %>%
+    myspread %>%
+    select(Feature, starts_with("Systolic"), starts_with("Diastolic"), starts_with("Pulse pressure"),
+           starts_with("MAP"), starts_with("Hypertension"))
+
+typologyformatter(data = deseq.table, font = 9, typology = typology.tbls4) %>%
+    flextable::width(j = 1, width = 1.2) %>%
+    flextable::width(j = seq(2, 11, 2), width = 0.75) %>%
+    flextable::width(j = seq(3, 11, 2), width = 0.55)
+#  %>%   save_as_html("cache/genus.html")
+```
+
+```{r supplement table deseq}
+deseq.table.na <- dset.deseq.signf.na %>%
+    mutate(lfc_se = sprintf("%.2f±%.2f", log2FoldChange, lfcSE),
+           p.value = pub.p(qval)) %>%
+    myspread %>%
+    select(Feature, starts_with("Systolic"), starts_with("Diastolic"), starts_with("Pulse pressure"),
+           starts_with("MAP"), starts_with("Hypertension"))
+
+typologyformatter(data = deseq.table.na, font = 9, typology = typology.tbls4) %>%
+    flextable::width(j = 1, width = 1.2) %>%
+    flextable::width(j = seq(2, 11, 2), width = 0.75) %>%
+    flextable::width(j = seq(3, 11, 2), width = 0.55) 
+#  %>%   save_as_html("cache/species.html")
+```
+
+
+```{r save session}
+save.image(file = paste0("session/session-", now, ".Rdata"))
+```

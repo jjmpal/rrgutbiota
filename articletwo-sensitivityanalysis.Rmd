@@ -1,0 +1,195 @@
+---
+title: "Hypertension and microbiome"
+author: "Joonatan Palmu"
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+output: html_document
+---
+	
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, xecho = TRUE, message = FALSE, results='asis',
+                      cache=FALSE, warning=FALSE)
+knitr::opts_chunk$set(cache.path = 'cache/', output.dir="cache/",
+                      file.path = 'cache/', fig.path = 'cache/')
+
+options(max.print=100)
+```
+
+# Importing libraries:
+
+```{r libraries, cache = FALSE}
+library(dplyr)
+library(tibble)
+library(phyloseq)
+library(nortest)
+library(microbiome)
+library(knitr)
+library(tidyr)
+library(vegan)
+library(reshape)
+library(parallel)
+library(officer)
+library(flextable)
+library(xtable)
+library(rvg)
+library(tableone)
+library(scales)
+library(ggplot2)
+library(gridExtra)
+library(png)
+library(pander)
+library(ggpubr)
+library(broom)
+library(ggfortify)
+library(RColorBrewer)
+library(gvlma)
+library(purrr)
+library(pwr)
+library(gtable)
+library(car)
+library(M3C)
+library(emmeans)
+```
+
+### RR biome functions
+
+<details>
+  <summary>Open/Close</summary>
+  
+```{r RR biome functions, code=readLines("articletwo-rrbiome.R")}
+source("articletwo-rrbiome.R")
+```
+
+</details>
+
+### Plot functions
+
+<details>
+  <summary>Open/Close</summary>
+
+```{r Plot functions, code=readLines("articletwo-ggplot.R")}
+source("articletwo-ggplot.R")
+```
+
+</details>
+
+# Import previous session
+
+```{r Import previous session}
+pseq.species <- import_filter_data("data/phfinrisk_species_all_drop50k_2018-12-21.RDs")
+bray.dist.m.species  <- readRDS("rds/bray.dist.m.species.rds")
+names.dset <- getdescriptions()
+```
+
+## Variables
+
+```{r my variables}
+var.BP <- c("MAP", "SYSTM", "DIASM", "PULSEPRESSURE", "HYPERTENSION")
+var.CL.min <- c("BL_AGE", "SEX")
+var.CL <- c("BL_AGE", "SEX", "BMI", "CURR_SMOKE", "Q57X", "PREVAL_DIAB",
+            "BL_USE_RX_C03","BL_USE_RX_C07", "BL_USE_RX_C08", "BL_USE_RX_C09")
+var.CL.opt <- c("BL_AGE", "SEX", "BMI", "CURR_SMOKE", "Q57X", "PREVAL_DIAB", "BP_TREAT")
+permutations <- 99
+```
+
+
+# Sensitivity analysis
+
+```{r sensitivity analysis bp treat}
+adonis.species.bptreat <- calculate.betadiversity(pseq = pseq.species,
+                                          matrix = bray.dist.m.species,
+                                          vars = list("max" = var.CL.opt,
+                                                      "min" = var.CL.min))
+
+diversity.bptreat <- diversities(pseq = pseq.species,
+                                 vars = list("max" = var.CL.opt, "min" = var.CL.min),
+                                 betadiversity = adonis.species.bptreat,
+                                 names.dset = names.dset)
+
+g.diversity.bptreat <- plot.diversities(diversity.bptreat)
+ggsave(file = "cache/sensitivity-alphabeta-bptreat.png", plot = g.diversity.bptreat, height = 6, width = 9)
+```
+
+<img src="cache/sensitivity-alphabeta-bptreat.png"/>
+
+```{r sensitivity analysis only healthy}
+pseq.species.healthy <- subset_samples(pseq.species,
+                                       PREVAL_DIAB == 0 &
+                                       PREVAL_CHD == 0 &
+                                       PREVAL_CR_ANYCANC == 0) 
+
+bray.dist.m.species.healthy <- bray.dist.m.species[pseq.species.healthy %>% meta %>% rownames,
+                                                   pseq.species.healthy %>% meta %>% rownames]
+
+adonis.species.healthy <- calculate.betadiversity(pseq = pseq.species.healthy,
+                                          matrix = bray.dist.m.species.healthy,
+                                          vars = list("max" = var.CL[var.CL != "PREVAL_DIAB"],
+                                                      "min" = var.CL.min))
+
+diversity.healthy <- diversities(pseq = pseq.species,
+                                 vars = list("max" = var.CL[var.CL != "PREVAL_DIAB"],
+                                             "min" = var.CL.min),
+                                 betadiversity = adonis.species.healthy,
+                                 names.dset = names.dset)
+
+g.diversity.healthy <- plot.diversities(diversity.healthy)
+ggsave(file = "cache/sensitivity-alphabeta-healthy.png", plot = g.diversity.healthy, height = 6, width = 9)
+```
+
+<img src="cache/sensitivity-alphabeta-healthy.png"/>
+
+## BMI
+
+Normal weigth
+
+```{r sensitivity analysis normal weight}
+pseq.species.normalweight <- subset_samples(pseq.species, BMI > 18.5 & BMI <= 25) 
+
+bray.dist.m.species.normalweight <-
+    bray.dist.m.species[pseq.species.normalweight %>% meta %>% rownames,
+                        pseq.species.normalweight %>% meta %>% rownames]
+
+adonis.species.normalweight <- calculate.betadiversity(pseq = pseq.species.normalweight,
+                                          matrix = bray.dist.m.species.normalweight,
+                                          vars = list("max" = var.CL[var.CL != "PREVAL_DIAB"],
+                                                      "min" = var.CL.min))
+
+diversity.normalweight <- diversities(pseq = pseq.species,
+                                 vars = list("max" = var.CL[var.CL != "PREVAL_DIAB"],
+                                             "min" = var.CL.min),
+                                 betadiversity = adonis.species.normalweight,
+                                 names.dset = names.dset)
+
+g.diversity.normalweight <- plot.diversities(diversity.normalweight)
+ggsave(file = "cache/sensitivity-alphabeta-normalweight.png",
+       plot = g.diversity.normalweight, height = 6, width = 9)
+```
+
+<img src="cache/sensitivity-alphabeta-normalweight.png"/>
+
+```{r sensitivity analysis obese}
+pseq.species.obese <- subset_samples(pseq.species, BMI > 30 & BMI <= 40) 
+
+bray.dist.m.species.obese <-
+    bray.dist.m.species[pseq.species.obese %>% meta %>% rownames,
+                        pseq.species.obese %>% meta %>% rownames]
+
+adonis.species.obese <- calculate.betadiversity(pseq = pseq.species.obese,
+                                          matrix = bray.dist.m.species.obese,
+                                          vars = list("max" = var.CL[var.CL != "PREVAL_DIAB"],
+                                                      "min" = var.CL.min))
+
+diversity.obese <- diversities(pseq = pseq.species,
+                                 vars = list("max" = var.CL[var.CL != "PREVAL_DIAB"],
+                                             "min" = var.CL.min),
+                                 betadiversity = adonis.species.obese,
+                                 names.dset = names.dset)
+
+g.diversity.obese <- plot.diversities(diversity.obese)
+ggsave(file = "cache/sensitivity-alphabeta-obese.png", plot = g.diversity.obese, height = 6, width = 9)
+```
+
+<img src="cache/sensitivity-alphabeta-obese.png"/>
+
+```{r save session}
+save.image(file = "session/session-sensitivity.Rdata")
+```
