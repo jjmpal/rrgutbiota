@@ -102,11 +102,6 @@ Loading descriptions for clinical data
 names.dset <- getdescriptions()
 ```
 
-```{r temp}
-temp <- readRDS("data/phfinrisk_species_all_drop50k_2018-12-21.RDs")
-temp %>% meta %>% nrow
-```
-
 Loading phyloseq object
 
 ```{r data}
@@ -221,7 +216,7 @@ if (!file.exists("rds/dds.rds") || !file.exists("rds/dds3.rds") || !file.exists(
 
 ```{r Characteristics}
 characteristicsTable(meta(pseq.species)) %>% kable
-```
+``
 
 <details><summary>Salt subset</summary>
 
@@ -344,7 +339,7 @@ Graphical representation for findings
 
 ```{r scatter plot from deseq}
 g.salt <- saltboxplot(pseq.genus.salt, dds.salt)
-ggsave(file = "cache/gsalt.png", plot = g.salt, height = 3, width = 3, dpi = 300)
+ggsave(file = "cache/gsalt.png", plot = g.salt, height = 5, width = 5, dpi = 300)
 ```
 
 <img src="cache/gsalt.png" />
@@ -376,21 +371,21 @@ dds.salt.species %>%
 Listing our "core" genera
 
 ```{r write supplement}
-core.names.fourcols <- pseq.genus.coretaxa %>%
+core.names.incols <- pseq.genus.coretaxa %>%
     renametaxa %>%
     sort %>%
     list.partition %>%
-    mycbind 
+    mycbind %>%
+    as.data.frame
 
-pseq.genus.coretaxa %>% length
-
-core.names.flextable <- flextable(core.names.fourcols) %>%
+core.names.flextable <- flextable(core.names.incols) %>%
     flextable::fontsize(size = 10, part = "header") %>%
     flextable::fontsize(size = 10, part = "body") %>%
-    flextable::width(j=1:4, width = 1.8) %>%
+    flextable::width(j=1:3, width = 1.8) %>%
     flextable::align(align = "left", part = "header") %>%
     flextable::align(align = "left")
-core.names.flextable
+
+core.names.flextable %>% save_as_html("cache/s1.html")
 ```
 
 Listing results for alpha diversity
@@ -462,7 +457,7 @@ typologyformatter(data = deseq.table, font = 9, typology = typology.tbls4) %>%
 #  %>%   save_as_html("cache/genus.html")
 ```
 
-```{r supplement table deseq}
+```{r supplement table deseq na}
 deseq.table.na <- dset.deseq.signf.na %>%
     mutate(lfc_se = sprintf("%.2f±%.2f", log2FoldChange, lfcSE),
            p.value = pub.p(qval)) %>%

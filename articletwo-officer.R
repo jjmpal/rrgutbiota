@@ -7,7 +7,7 @@ characteristics.names <- function(onlyvars = FALSE) {
     if (onlyvars == TRUE)
         return(c("BL_AGE", "SEX", "BMI", "oSYSTM", "oDIASM",
                  "oPULSEPRESSURE", "oMAP", "HYPERTENSION",  
-                 "CURR_SMOKE", "PREVAL_DIAB",  "Q57X", "BL_USE_RX_C03",
+                 "CURR_SMOKE", "PREVAL_DIAB",  "Q57X", "ANYDRUG", "BL_USE_RX_C03",
                  "BL_USE_RX_C07", "BL_USE_RX_C08", "BL_USE_RX_C09"))
     list("BL_AGE" = "Age, y (SD)",
          "SEX" = "Female, N (%)",

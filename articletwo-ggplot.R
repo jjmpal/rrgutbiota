@@ -229,7 +229,8 @@ saltplot <- function(dset, ymax = 2) {
         theme_classic() +
         theme(plot.title = element_blank(),
               legend.title = element_blank(),
-              legend.position = c(0.9,0.95))
+              legend.position = c(0.9,0.95),
+              axis.text = element_text(size = 8))
 }
 
 myoutlier <- function(list) {
@@ -267,7 +268,8 @@ saltboxplot <- function(pseq, dds) {
         ylab("24-hour urinary sodium [mmol]") +
         theme_classic() +
         theme(strip.background = element_blank(),
-              strip.placement = "outside")
+              strip.placement = "outside",
+              axis.title = element_text(size = 9))
 }
 
 pcoaplot <- function(pcoa) {

@@ -50,6 +50,10 @@ library(M3C)
 library(emmeans)
 ```
 
+```{r load old, eval = FALSE}
+load("session/session-sensitivity.Rdata")
+```
+
 ### RR biome functions
 
 <details>
@@ -94,6 +98,12 @@ permutations <- 99
 
 # Sensitivity analysis
 
+Self reported BP medication
+
+```{r bp medication use}
+pseq.species %>% meta %>% pull(BP_TREAT) %>% as.factor %>% summary %>% kable
+```
+
 ```{r sensitivity analysis bp treat}
 adonis.species.bptreat <- calculate.betadiversity(pseq = pseq.species,
                                           matrix = bray.dist.m.species,
@@ -110,6 +120,19 @@ ggsave(file = "cache/sensitivity-alphabeta-bptreat.png", plot = g.diversity.bptr
 ```
 
 <img src="cache/sensitivity-alphabeta-bptreat.png"/>
+
+Excluding participants with diabtes, CAD, and any cancer
+
+```{r only healthy}
+pseq.species %>% meta %>%
+    filter(PREVAL_DIAB == 1 | PREVAL_CHD == 1 | PREVAL_CR_ANYCANC == 1) %>%
+    summarize(diab = sum(PREVAL_DIAB == 1),
+              chd = sum(PREVAL_CHD == 1),
+              canc = sum(PREVAL_CR_ANYCANC == 1),
+              any = n()) %>%
+    kable
+```
+
 
 ```{r sensitivity analysis only healthy}
 pseq.species.healthy <- subset_samples(pseq.species,
