@@ -336,10 +336,13 @@ calculate.betadiversity <- function(pseq, matrix, vars, npermutations = 999) {
                         npermutations = npermutations))
 }
 
-deseqresults <- function(modellist, names.dset, p = 0.05) {
+deseqresults <- function(modellist,
+                         names.dset,
+                         p = 0.05,
+                         hypertensionvars = c("HYPERTENSION")) {
     vars <- c2l(names(modellist))
     lapply(c2l(vars), function(x, models = modellist) {
-        name <- ifelse(x %in% c("HYPERTENSION"), sprintf("%s_1_vs_0", x), x)
+        name <- ifelse(x %in% hypertensionvars, sprintf("HYPERTENSION_1_vs_0", x), x)
         results(models[[x]], name = name) %>%
             as.data.frame %>%
             tibble::rownames_to_column("Feature") }) %>%    

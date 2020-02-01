@@ -2,16 +2,18 @@
 title: "Hypertension and microbiome"
 author: "Joonatan Palmu"
 date: "`r format(Sys.time(), '%d.%m.%Y')`"
-output: html_document
+output: 
+  html_document:
+    number_sections: true
 ---
 	
-```{r setup, include=FALSE}
+```{r setup, echo=FALSE}
 knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE, results='asis',
                       cache=FALSE, warning=FALSE)
 knitr::opts_chunk$set(cache.path = 'cache/', output.dir="cache/",
                       file.path = 'cache/', fig.path = 'cache/')
 
-options(max.print=100)
+options(knitr.kable.NA = "")
 
 dir.create("cache/", showWarnings = FALSE)
 dir.create("rds/", showWarnings = FALSE)
@@ -20,13 +22,15 @@ dir.create("session/", showWarnings = FALSE)
 now <- format(Sys.time(), '%Y%m%d-%H%M%S')
 ```
 
-```{r Command line arguments, include = FALSE, eval = FALSE}
+```{r Command line arguments, echo = FALSE, eval = FALSE}
 file <- paste0("session/", sort(list.files("session"), decreasing = TRUE)[1])
 message("Loading variables from file ", file)
 load(file)
 ```
 
 # Importing libraries:
+
+<details><summary>Libraries</summary>
 
 ```{r libraries, cache = FALSE}
 library(dplyr)
@@ -65,11 +69,17 @@ library(pander)
 library(hexbin)
 ```
 
-Session info
- 
+</details>
+
+# Session info
+
+<details><summary>Session</summary>
+
 ```{r Session info}
 pander(sessionInfo(), compact = TRUE)
 ```
+
+</details>
 
 # Sources
 
@@ -110,14 +120,10 @@ pseq.genus <- import_filter_data("data/phfinrisk_genus_all_drop50k_2018-11-16.RD
 pseq.genus.coretaxa <- coretaxa(pseq.genus, detection = 0.1/100, prevalence = 1/100)
 ```
 
-Species has average number of reads `r pseq.species %>% sample_sums %>% mean` and
-genus `r pseq.genus %>% sample_sums %>% mean`. Core has length 
-`r length(pseq.genus.coretaxa)`.
-
 At species level meta has dimensions (`r dim(meta(pseq.species))`) and
 there ntaxa is `r ntaxa(pseq.species)`. At genus level meta has
 dimensions (`r dim(meta(pseq.genus))`) and there ntaxa is 
-`r ntaxa(pseq.genus)`. 
+`r ntaxa(pseq.genus)`. Core size is `r length(pseq.genus.coretaxa)`.
 
 # Variables
 
@@ -216,7 +222,7 @@ if (!file.exists("rds/dds.rds") || !file.exists("rds/dds3.rds") || !file.exists(
 
 ```{r Characteristics}
 characteristicsTable(meta(pseq.species)) %>% kable
-``
+```
 
 <details><summary>Salt subset</summary>
 
@@ -238,14 +244,14 @@ diversity <- diversities(pseq = pseq.species,
                            names.dset = names.dset)
 ```
 
-Results in minimum model of alpha diversity
-
-```{r talbe alpha div min}
+```{r talbe alpha div min, echo = FALSE}
 diversities.tidy(diversity) %>%
     kable
 ```
 
-```{r save grob}
+Diversity plot
+
+```{r save grob, echo = FALSE}
 g.diversity <- plot.diversities(diversity)
 ggsave(file = "cache/alpha-beta.png", plot = g.diversity, height = 6, width = 9)
 ```
@@ -254,7 +260,7 @@ ggsave(file = "cache/alpha-beta.png", plot = g.diversity, height = 6, width = 9)
 
 ## Principal coordinate analysis
 
-```{r pcoa plot}
+```{r pcoa plot, echo = FALSE}
 pcoa.plot <- pcoaplot(pcoa.ordinate)
 ggsave(file = "cache/pcoa-species.png", plot=pcoa.plot, height=3.0, width=6, units = "in", dpi = 300)
 ```
@@ -268,14 +274,21 @@ dset.deseq.signf <- deseqresults(dds, names.dset)
 g.deseq <- deseqheatmap(dset.deseq.signf)
 ```
 
-Number of significant associations `r sum(pull(dset.deseq.signf, qval) < 0.05)` for 
-`r pull(dset.deseq.signf, Feature)  %>% unique %>% length` features.
+Significant associations found between blood pressure indices and N:o `r nrow(dset.deseq.signf)`
+genera and N:o `r dset.deseq.signf %>% pull(Feature) %>% unique %>% length` features. N:o 
+`r dset.deseq.signf %>% filter(log2FoldChange > 0) %>% nrow` positive associations found.
 
-### Number of associations per covariate
+### Associations for hypertension looping covariates
+
+Base model had 
+`r sum(results(dds3$BL_AGE, name = "HYPERTENSION_1_vs_0")$padj < 0.05, na.rm = TRUE)`
+significant associations and inclusion of BMI dropped it to
+`r sum(results(dds3$BMI, name = "HYPERTENSION_1_vs_0")$padj < 0.05, na.rm = TRUE)`.
 
 ```{r results compare deseq2}
-map(dds3, ~sum(results(.x, name = "HYPERTENSION_1_vs_0")$padj < 0.05, na.rm = TRUE)) %>%
-    map_df(~as.data.frame(.x) %>% dplyr::rename(qval = .x), .id = "included") %>%
+deseqresults(dds3, names.dset, hypertensionvars = names(dds3)) %>%
+    select(Name, Feature, log2FoldChange) %>%
+    spread(Name, log2FoldChange) %>%
     kable
 ```
 
@@ -286,13 +299,11 @@ dset.deseq.signf.na <- deseqresults(ddsNa, names.dset)
 g.deseq.na <- deseqheatmap(dset.deseq.signf.na)
 ```
 
-Number of significant associations `r sum(pull(dset.deseq.signf.na, qval) < 0.05)` for 
-`r dset.deseq.signf.na %>% nrow` features. Number of
-`r dset.deseq.signf.na %>% filter(log2FoldChange > 0) %>% nrow`
-association were positive.
+Significant associations found between blood pressure indices and N:o `r nrow(dset.deseq.signf.na)`
+genera and N:o `r dset.deseq.signf.na %>% pull(Feature) %>% unique %>% length` features. N:o 
+`r dset.deseq.signf.na %>% filter(log2FoldChange > 0) %>% nrow` positive associations found.
 
-
-```{r deseq dual plot}
+```{r deseq dual plot, echo = FALSE}
 g.deseqgenus <- gtable_frame(ggplotGrob(g.deseq + theme(legend.position = "none")),
                   height = unit(length(unique((dset.deseq.signf$Feature))), 'mm'),
                   width = unit(25, 'mm'))
@@ -318,14 +329,10 @@ dds.salt <- myDESeq(pseq = pseq.genus,
                     coretaxa = pseq.genus.coretaxa,
                     vars = c("NA.", var.CL),
                     saltsubset = TRUE)
+pseq.genus.salt <- pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE)
 ```
 
-Lactobacillus prevalence in subsample
-
-```{r lactobacillus prevalence}
-pseq.genus.salt <- pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE)
-pseq_prevalence(pseq.genus.salt)
-``` 
+Lactobacillus prevalence in subsample `r sprintf("%.1f%%", 100*pseq_prevalence(pseq.genus.salt))`.
 
 ```{r significant results for salt subset}
 dds.salt %>%
@@ -337,7 +344,7 @@ dds.salt %>%
 
 Graphical representation for findings
 
-```{r scatter plot from deseq}
+```{r scatter plot from deseq, echo = FALSE}
 g.salt <- saltboxplot(pseq.genus.salt, dds.salt)
 ggsave(file = "cache/gsalt.png", plot = g.salt, height = 5, width = 5, dpi = 300)
 ```
@@ -364,8 +371,6 @@ dds.salt.species %>%
     kable
 ```
 
-
-
 # Supplements
 
 Listing our "core" genera
@@ -385,7 +390,7 @@ core.names.flextable <- flextable(core.names.incols) %>%
     flextable::align(align = "left", part = "header") %>%
     flextable::align(align = "left")
 
-core.names.flextable %>% save_as_html("cache/s1.html")
+core.names.flextable
 ```
 
 Listing results for alpha diversity
@@ -436,13 +441,6 @@ betadiversity.flextable
 ```
 
 ```{r supplement table deseq}
-typology.tbls4 <- data.frame(
-    col_keys = colnames(deseq.table),
-    what = c("", rep("Systolic BP", 2), rep("Diastolic BP", 2),
-             rep("Pulse pressure", 2), rep("Mean arterial pressure", 2), rep("Hypertension", 2)),
-    measure = c("", rep(c("Log2FC±SE", "p"), 5)),
-    stringsAsFactors = FALSE)
-
 deseq.table <- dset.deseq.signf %>%
     mutate(lfc_se = sprintf("%.2f±%.2f", log2FoldChange, lfcSE),
            p.value = pub.p(qval)) %>%
@@ -450,11 +448,18 @@ deseq.table <- dset.deseq.signf %>%
     select(Feature, starts_with("Systolic"), starts_with("Diastolic"), starts_with("Pulse pressure"),
            starts_with("MAP"), starts_with("Hypertension"))
 
-typologyformatter(data = deseq.table, font = 9, typology = typology.tbls4) %>%
+typology.deseq <- data.frame(
+    col_keys = colnames(deseq.table),
+    what = c("", rep("Systolic BP", 2), rep("Diastolic BP", 2),
+             rep("Pulse pressure", 2), rep("Mean arterial pressure", 2), rep("Hypertension", 2)),
+    measure = c("", rep(c("Log2FC±SE", "p"), 5)),
+    stringsAsFactors = FALSE)
+
+
+typologyformatter(data = deseq.table, font = 9, typology = typology.deseq) %>%
     flextable::width(j = 1, width = 1.2) %>%
     flextable::width(j = seq(2, 11, 2), width = 0.75) %>%
     flextable::width(j = seq(3, 11, 2), width = 0.55)
-#  %>%   save_as_html("cache/genus.html")
 ```
 
 ```{r supplement table deseq na}
@@ -465,13 +470,11 @@ deseq.table.na <- dset.deseq.signf.na %>%
     select(Feature, starts_with("Systolic"), starts_with("Diastolic"), starts_with("Pulse pressure"),
            starts_with("MAP"), starts_with("Hypertension"))
 
-typologyformatter(data = deseq.table.na, font = 9, typology = typology.tbls4) %>%
+typologyformatter(data = deseq.table.na, font = 9, typology = typology.deseq) %>%
     flextable::width(j = 1, width = 1.2) %>%
     flextable::width(j = seq(2, 11, 2), width = 0.75) %>%
     flextable::width(j = seq(3, 11, 2), width = 0.55) 
-#  %>%   save_as_html("cache/species.html")
 ```
-
 
 ```{r save session}
 save.image(file = paste0("session/session-", now, ".Rdata"))
