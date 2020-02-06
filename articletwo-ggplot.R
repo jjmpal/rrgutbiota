@@ -62,7 +62,7 @@ plot.beta <- function(diversity,
                       ymax = 0.0010) {
     diversity <- diversity %>% mutate(Qstar = ifelse(beta.p < 0.05, "*", "-"))
     plot.beta.diversity <- ggplot(diversity,
-                                  aes(x = reorder(Name, deseqplotorder(Name)), y = beta.R2)) +
+                                  aes(x = reorder(Name, -deseqplotorder(Name)), y = beta.R2)) +
         geom_bar(stat="identity", color = "black", fill = "gray96") +
         geom_point(aes(y = beta.R2 - 0.00007, shape=Qstar), show.legend=FALSE, color='black', size=14) +
         scale_shape_manual(values=c('*'='*', '-'='')) +

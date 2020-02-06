@@ -393,6 +393,31 @@ core.names.flextable <- flextable(core.names.incols) %>%
 core.names.flextable
 ```
 
+Listing Lactobacillus spp
+
+
+
+```{r write supplement}
+lactobacilli.names.incols <- pseq.species %>%
+    taxa %>%
+    mygrep(word = "^Lactobacillus.*Bacteria") %>%
+    renametaxa %>%
+    sort %>%
+    list.partition(parts = 4) %>%
+    mycbind %>%
+    as.data.frame
+
+lactobacilli.names.flextable <- flextable(lactobacilli.names.incols) %>%
+    flextable::fontsize(size = 10, part = "header") %>%
+    flextable::fontsize(size = 10, part = "body") %>%
+    flextable::width(j=1:3, width = 1.8) %>%
+    flextable::align(align = "left", part = "header") %>%
+    flextable::align(align = "left")
+
+lactobacilli.names.flextable 
+```
+
+
 Listing results for alpha diversity
 
 ```{r supplement table for alpha diversity}
