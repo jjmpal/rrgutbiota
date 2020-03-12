@@ -59,18 +59,21 @@ plot.alpha <- function(diversity,
 
 plot.beta <- function(diversity,
                       fig.textsize = 15,
-                      ymax = 0.0010) {
+                      ymax = 0.0010,
+                      yby = 0.0005,
+                      shift = 0.00007,
+                      ylab = "Coefficient of determination for\nbeta diversity") {
     diversity <- diversity %>% mutate(Qstar = ifelse(beta.p < 0.05, "*", "-"))
     plot.beta.diversity <- ggplot(diversity,
                                   aes(x = reorder(Name, -deseqplotorder(Name)), y = beta.R2)) +
         geom_bar(stat="identity", color = "black", fill = "gray96") +
-        geom_point(aes(y = beta.R2 - 0.00007, shape=Qstar), show.legend=FALSE, color='black', size=14) +
+        geom_point(aes(y = beta.R2 - shift, shape=Qstar), show.legend=FALSE, color='black', size=14) +
         scale_shape_manual(values=c('*'='*', '-'='')) +
         coord_flip() +
         theme_classic(fig.textsize) +
-        ylab("Coefficient of determination for\nbeta diversity") +
+        ylab(ylab) +
         scale_y_continuous(limits = c(0, ymax),
-                           breaks = seq(0, ymax, 0.0005),
+                           breaks = seq(0, ymax, yby),
                            labels = function(x) sprintf("%.2f%%", x*100)) +
         theme(legend.position="right",
               legend.direction="vertical",
@@ -214,7 +217,7 @@ deseqplotorder <- function(x) {
 }
 
 saltplot <- function(dset, ymax = 2) {
-    ggplot(data = dset, aes(x = NA., y = Lactobacillus.Bacteria)) +
+    ggplot(data = dset, aes(x = dUNA, y = Lactobacillus.Bacteria)) +
         geom_point(aes(color = SEX), size = 0.05, position = "jitter") +
         geom_smooth(aes(group = SEX, color = SEX), method='lm', formula= y~x, colour = "black", size = 0.4) +
         scale_x_continuous(limits=c(20, 205), expand = c(0, 0)) +
@@ -239,7 +242,7 @@ myoutlier <- function(list) {
         (list > quantile(list, 0.40) & list < quantile(list, 0.60)) # buggy jitterdodge
 }
 
-saltboxplot <- function(pseq, dds) {
+saltdset <- function(pseq, dds) {
     df.mu <- assays(dds)[["mu"]] %>%
         as.data.frame %>%
         tibble::rownames_to_column("rowname") %>%
@@ -247,7 +250,7 @@ saltboxplot <- function(pseq, dds) {
         spread(rowname, value) %>%
         rename_all(replace.brackets)
 
-    df.countmu <- full_join(meta(pseq) %>%
+    full_join(meta(pseq) %>%
                             tibble::rownames_to_column("sampleid"),
                             df.mu %>% select(sampleid, Lactobacillus.Bacteria),
                             by = "sampleid") %>%
@@ -255,20 +258,30 @@ saltboxplot <- function(pseq, dds) {
         group_by(group) %>%
         mutate(outlier = myoutlier(NA.)) %>%
         ungroup
+}
 
-    ggplot(data = df.countmu, aes(x = group, y = NA.)) +
+saltboxplot.names <- function() {
+    c("Lactobacillus_paracasei.Bacteria_group" = "L. paracasei",
+      "Lactobacillus_salivarius.Bacteria_group" = "L. salivarius",
+      "Lactobacillus.Bacteria_group" = "Lactobacillus")
+}
+
+saltboxplot <- function(df) {
+    ggplot(data = df, aes(x = abundance, y = dUNA)) +
+        facet_wrap(~taxa, strip.position = "bottom", labeller = labeller(taxa = saltboxplot.names())) +
         geom_boxplot(lwd=0.1, outlier.shape = NA, notch = FALSE, fill = "gray96") +
-        geom_jitter(alpha = 0.05, size = 0.7, width = 0.3, shape = 20) +
+        geom_jitter(alpha = 0.05, size = 0.4, width = 0.3, shape = 20) +
         scale_x_discrete(labels=c("1" = "Q1",
                                   "2" = "Q2",
                                   "3" = "Q3",
                                   "4" = "Q4")) +
-        scale_y_continuous(expand = c(0, 0), lim = c(0, 220)) +
-        xlab("Lactobacillus abundance") +
+        scale_y_continuous(expand = c(0, 0), lim = c(0, 400)) +
         ylab("24-hour urinary sodium [mmol]") +
         theme_classic() +
-        theme(strip.background = element_blank(),
-              strip.placement = "outside",
+        theme(axis.title.x=element_blank(),
+              strip.background = element_blank(),
+              strip.placement = "bottom",
+              strip.text.x = element_text(size = 9, vjust = 2.0, face = "italic"),
               axis.title = element_text(size = 9))
 }
 

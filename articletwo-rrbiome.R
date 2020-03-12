@@ -33,56 +33,7 @@ myscale <- function(x){
   (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
 }
 
-filter.phenotype.data <- function(pseq,
-                                  included = c("MEN",
-                                               "BL_AGE",
-                                               "SYSTM",
-                                               "DIASM",
-                                               "BMI",
-                                               "CURR_SMOKE",
-                                               "PREVAL_DIAB",
-                                               "Q57X",
-                                               "BL_USE_RX_C09",
-                                               "BL_USE_RX_C03",
-                                               "BL_USE_RX_C07",
-                                               "BL_USE_RX_C08",
-                                               "NA.",
-                                               "BP_TREAT",
-                                               "PREVAL_CHD",
-                                               "PREVAL_CR_ANYCANC"),
-                                  allowna = c("NA.",
-                                              "BP_TREAT",
-                                              "PREVAL_CHD",
-                                              "PREVAL_CR_ANYCANC")) {
-    meta(pseq) %>%
-        tibble::rownames_to_column(var = "rowname") %>%
-        dplyr::select(rowname, included) %>%
-        tidyr::drop_na(myin(included, allowna, complement = TRUE)) %>%
-        dplyr::mutate(ANYDRUG = factor(ifelse(BL_USE_RX_C03  == 1 | BL_USE_RX_C07 == 1 |
-                                       BL_USE_RX_C08 == 1  | BL_USE_RX_C09 == 1, 1, 0)),
-                      ANYEXERCICE = factor(ifelse(Q57X == 1, 0, 1)),
-                      PULSEPRESSURE = SYSTM - DIASM,
-                      HYPERTENSION = factor(ifelse(SYSTM >= 140 | DIASM >= 90 | ANYDRUG == 1, 1, 0)),
-                      SEX = factor(ifelse(MEN == "Female", 1, 0)),
-                      MAP = 2./3.*DIASM + 1./3.*SYSTM) %>%
-        dplyr::mutate(oSYSTM = SYSTM,
-                      oDIASM = DIASM,
-                      oPULSEPRESSURE = PULSEPRESSURE,
-                      oMAP = MAP,
-                      SYSTM = myscale(SYSTM),
-                      DIASM = myscale(DIASM),
-                      PULSEPRESSURE = myscale(PULSEPRESSURE),
-                      MAP = myscale(MAP),
-                      SEX = as.factor(SEX),
-                      Q57X = factor(Q57X, ordered = FALSE),
-                      BL_USE_RX_C03 = as.factor(BL_USE_RX_C03),
-                      BL_USE_RX_C07 = as.factor(BL_USE_RX_C07),
-                      BL_USE_RX_C08 = as.factor(BL_USE_RX_C08),
-                      BL_USE_RX_C09 = as.factor(BL_USE_RX_C09)) %>%
-        dplyr::select(-MEN) %>%
-        tibble::remove_rownames() %>%
-        tibble::column_to_rownames(var = "rowname")
-}
+
 
 meta.merge.alphadiversity <- function(pseq, index = "shannon") {
     alphadiversity  <- microbiome::alpha(pseq, index = index)
@@ -122,16 +73,6 @@ calculateglm <- function(dset,
         as.data.frame
 }
 
-import_filter_data <- function(file, included) {
-    pseq.full <- readRDS(file)
-    if (missing(included)) {
-        pseq.meta <- filter.phenotype.data(pseq.full)
-    } else {
-        pseq.meta <- filter.phenotype.data(pseq.full, included = included)
-    }
-    phyloseq::sample_data(pseq.full) <- phyloseq::sample_data(pseq.meta)
-    return(pseq.full)
-}
 
 calculateadonis <- function(dset,
                             matrix,
@@ -328,12 +269,13 @@ diversities.tidy <- function(diversity) {
         select(Name, covariates, alpha, alpha.p, beta.R2, beta.p) 
 }
 
-calculate.betadiversity <- function(pseq, matrix, vars, npermutations = 999) {
-    lapply(vars, function(var)
+calculate.betadiversity <- function(pseq, matrix, vars, npermutations = 999, maxcores = 10) {
+    mclapply(vars, function(var) {
         calculateadonis(dset = meta(pseq),
                         matrix = matrix,
                         covariates = var,
-                        npermutations = npermutations))
+                        npermutations = npermutations)
+    }, mc.cores = min(maxcores, length(vars)))
 }
 
 deseqresults <- function(modellist,
@@ -363,7 +305,10 @@ prune_lactobacillus <- function(pseq, transform = "compositional", drop = TRUE) 
         { if (drop == TRUE) dplyr::filter(., duna.present == 1) else . }
 }
 
-pseq_prevalence <- function(pseq, taxa = "Lactobacillus (Bacteria)", limit = 0.1/100, fun = mean) {
+pseq_prevalence <- function(pseq,
+                            taxa = "Lactobacillus (Bacteria)",
+                            limit = 0.1/100,
+                            fun = mean) {
     pseq %>%
         microbiome::transform(transform = "compositional") %>%
         abundances %>%
@@ -371,6 +316,10 @@ pseq_prevalence <- function(pseq, taxa = "Lactobacillus (Bacteria)", limit = 0.1
         .[taxa, ] %>%
         { ifelse(. > limit, 1, 0) } %>%
         fun
+}
+
+pseq_prevalence_format <- function(pseq, taxa) {
+    sprintf("%.1f%%", 100*pseq_prevalence(pseq, taxa))
 }
 
 mytableone <- function(dset, variables) {
@@ -405,7 +354,7 @@ coretaxa <- function(pseq, detection = 0.1/100, prevalence = 1/100) {
 
 pseqsubset <- function(pseq, coretaxa, saltsubset = TRUE) {
     exists.coretaxa <- !missing(coretaxa)
-    participants <- pseq %>% meta %>% subset(!is.na(NA.)) %>% rownames
+    participants <- pseq %>% meta %>% subset(!is.na(dUNA)) %>% rownames
     pseq %>%
         { if (saltsubset) prune_samples(participants, .) else . } %>%
         { if (exists.coretaxa) prune_taxa(coretaxa, .) else . }
@@ -421,3 +370,13 @@ myDESeq <- function(pseq, vars, coretaxa, coreterm = ".", saltsubset = FALSE) {
         estimateDispersions(fitType="parametric")
     nbinomWaldTest(mydds.dispersion)
 }
+
+deseq.abundances <- function(dds) {
+    assays(dds)[["mu"]] %>%
+        as.data.frame %>%
+        tibble::rownames_to_column("rowname") %>%
+        gather(sampleid, value, -rowname) %>%
+        spread(rowname, value) %>%
+        rename_all(replace.brackets) 
+}
+

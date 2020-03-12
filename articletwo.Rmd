@@ -67,6 +67,7 @@ library(DESeq2)
 library(ggeffects)
 library(pander)
 library(hexbin)
+library(readr)
 ```
 
 </details>
@@ -87,6 +88,7 @@ pander(sessionInfo(), compact = TRUE)
 
 ```{r Functions}
 sourcefiles <- c("articletwo-officer.R",
+                 "articletwo-import.R",
                  "articletwo-rrbiome.R",
                  "articletwo-ggplot.R")
 ```
@@ -153,6 +155,7 @@ if (!file.exists("rds/bray.dist.m.species.rds")) {
  if (!file.exists("rds/adonis.species.rds")) {
      adonis.species <- calculate.betadiversity(pseq = pseq.species,
                                                matrix = bray.dist.m.species,
+                                               npermutations = 999,
                                                vars = list("max" = var.CL,
                                                             "min" = var.CL.min))
      saveRDS(adonis.species, file = "rds/adonis.species.rds")
@@ -325,37 +328,50 @@ ggsave(file = "cache/deseq-full.png", plot = g.deseq, width = 14, height = 25, d
 ## Association between genera and dU-NA
 
 ```{r lacto deseq calculation}
-dds.salt <- myDESeq(pseq = pseq.genus,
-                    coretaxa = pseq.genus.coretaxa,
-                    vars = c("NA.", var.CL),
-                    saltsubset = TRUE)
 pseq.genus.salt <- pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE)
 ```
 
-Lactobacillus prevalence in subsample `r sprintf("%.1f%%", 100*pseq_prevalence(pseq.genus.salt))`.
+Lactobacillus prevalence in subsample `r sprintf("%.1f%%", 100*pseq_prevalence(pseq.genus.salt))`. 
+Levels of dU-Na `r sprintf("%.1f (%.1f)", mean(meta(pseq.genus)$dUNA, na.rm = TRUE), 
+	sd(meta(pseq.genus)$dUNA, na.rm = TRUE))`
+
 
 ```{r significant results for salt subset}
+dds.salt <- myDESeq(pseq = pseq.genus,
+                    coretaxa = pseq.genus.coretaxa,
+                    vars = c("dUNA", var.CL),
+                    saltsubset = TRUE)
+
 dds.salt %>%
-    results(., name = "NA.", tidy = TRUE) %>%
-    dplyr::mutate(qval = p.adjust(pvalue, method="BH")) %>%
+    results(., name = "dUNA", tidy = TRUE) %>%
+    dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
+                  lfc_se = sprintf("%.4f±%.4f", log2FoldChange, lfcSE)) %>%
+    select(row, lfc_se, qval) %>%
     filter(row == "Lactobacillus (Bacteria)") %>%
     kable
 ```
 
 Graphical representation for findings
 
-```{r scatter plot from deseq, echo = FALSE}
-g.salt <- saltboxplot(pseq.genus.salt, dds.salt)
-ggsave(file = "cache/gsalt.png", plot = g.salt, height = 5, width = 5, dpi = 300)
+```{r salt subset char}
+df.genus.salt <- saltdset(pseq.genus.salt, dds.salt)
 ```
 
-<img src="cache/gsalt.png" />
+```{r genus salt levels}
+df.genus.salt %>%
+    group_by(group) %>%
+    summarize(mean = round(mean(dUNA), 1),
+              sd = round(sd(dUNA), 1)) %>%
+    kable
+```
+
+Mean urinary salt `r df.genus.salt$dUNA %>% mean` and sd `r df.genus.salt$dUNA %>% sd`.
 
 ## Association between Lactobacilli and dU-NA
 
 ```{r species salt}
 dds.salt.species <- myDESeq(pseq = pseq.species,
-                        vars = c("NA.", var.CL),
+                        vars = c("dUNA", var.CL),
                         coreterm = "^Lactobacillus.*Bacteria",
                         saltsubset = TRUE)
 ```
@@ -364,18 +380,63 @@ Significant results after FDR correction
 
 ```{r species salt results}
 dds.salt.species %>%
-    results(., name = "NA.", tidy = TRUE) %>%
+    results(., name = "dUNA", tidy = TRUE) %>%
     dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
                   row = renametaxa(row)) %>%
     filter(qval < 0.05) %>%
+    mutate(qval_exp = sprintf("%.4e", qval)) %>%
     kable
 ```
+
+Prevalence for L. paracasei is
+`r pseq_prevalence_format(pseq.species, "Lactobacillus_paracasei (Bacteria)")`.
+and for L. salivarius is 
+`r pseq_prevalence_format(pseq.species, "Lactobacillus_salivarius (Bacteria)")`. 
+
+```{r species plot}
+df.species.salt <- deseq.abundances(dds.salt.species) %>%
+    full_join(deseq.abundances(dds.salt), by = "sampleid") %>%
+    left_join(meta(pseq.species) %>% tibble::rownames_to_column("sampleid"), by = "sampleid") %>%
+    mutate_at(vars(contains('Lactobacillus')), .funs = list(group = ~factor(dplyr::ntile(., 4)))) %>%
+    select(dUNA,
+           Lactobacillus_paracasei.Bacteria_group,
+           Lactobacillus_salivarius.Bacteria_group,
+           Lactobacillus.Bacteria_group)
+
+df.species.salt %>%
+    saltboxplot %>%
+    gather(taxa, abundance, -dUNA) %>%
+    ggsave(file = "cache/boxplot-lacto-salt.png", plot = ., height = 3, width = 3.5, dpi = 300, unit = "in")
+```
+
+<img src = "cache/boxplot-lacto-salt.png" />
+
+Urinary sodium quartiles for L. paracei
+
+```{r species salt levels paracasei, echo = FALSE}
+df.species.salt %>%
+    group_by(Lactobacillus_paracasei.Bacteria_group) %>%
+    summarize(mean = round(mean(dUNA), 1),
+              sd = round(sd(dUNA), 1)) %>%
+    kable
+```
+
+Urinary sodium quartiles for L. salivarius
+
+```{r salt levels salivarius, echo = FALSE}
+df.species.salt %>%
+    group_by(Lactobacillus_salivarius.Bacteria_group) %>%
+    summarize(mean = round(mean(dUNA), 1),
+              sd = round(sd(dUNA), 1)) %>%
+    kable
+```
+
 
 # Supplements
 
 Listing our "core" genera
 
-```{r write supplement}
+```{r write supplement core names}
 core.names.incols <- pseq.genus.coretaxa %>%
     renametaxa %>%
     sort %>%
@@ -395,9 +456,7 @@ core.names.flextable
 
 Listing Lactobacillus spp
 
-
-
-```{r write supplement}
+```{r write supplement lactobacilli}
 lactobacilli.names.incols <- pseq.species %>%
     taxa %>%
     mygrep(word = "^Lactobacillus.*Bacteria") %>%
