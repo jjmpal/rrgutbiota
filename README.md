@@ -5,10 +5,10 @@ This repository contains the source code for our manuscript accepted to JAHA. Th
 ## Directory structure
 
 ````
-rrnmr/
+rrgutbiota/
 ├── README.md                             # project overview
 ├── LICENCE                               # project licence
-├── articletwo.Rmd                        # Main computation f
+├── articletwo.Rmd                        # Main computation file
 ├── articletwo-import.R                   # Collection of functions for data import and definition
 ├── articletwo-ggplot.R                   # Collection of functions for plotting
 ├── articletwo-rrbiome.R                  # Collection of functions for modeling
