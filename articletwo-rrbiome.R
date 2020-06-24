@@ -1,12 +1,26 @@
 # Helper functions for articletwo
 
+`%difference%` <- function(a, b) {
+    a[!a %in% b]
+}
+
+`%intersect%` <- function(a, b) {
+    intersect(a, b)
+}
+
+
+`%union%` <- function(a, b) {
+    c(a, b)
+}
+
 replace.brackets <- function (genus) gsub('(.*) \\(+(.+)\\)', '\\1.\\2', genus)
 
-renametaxa <- function (names) {
-    suffix <- ifelse(grepl("BacteriaPlasmid", names), "*", "")
-    base <- ifelse(grepl("_", names),
-           gsub('(.).*_(.*) \\(+(.+)\\)', '\\1. \\2', names),
-           gsub('(.*) \\(+(.+)\\)', '\\1', names))
+renametaxa <- function (names, star = "*") {
+    suffix <- ifelse(grepl("BacteriaPlasmid", names), star, "")
+    base <- case_when(grepl("_.*\\.Bacteria", names) ~ gsub('(.).*_(.*).Bacteria.*', '\\1. \\2', names),
+                      grepl("\\.Bacteria", names) ~ gsub('(.*)\\.Bacteria.*', '\\1', names),
+                      grepl("_", names) ~ gsub('(.).*_(.*) \\(+(.+)\\)', '\\1. \\2', names),
+                      TRUE ~  gsub('(.*) \\(+(.+)\\)', '\\1', names))
     paste0(base, suffix)
 }
 
@@ -91,27 +105,7 @@ calculateadonis <- function(dset,
       }, mc.cores = min(maxcores, length(responses)))
 }
 
-prepare.maaslin <- function (pseq,
-                             tsvfile = "merged_phfinrisk_genus.tsv",
-                             conffile = "maaslin_config.config",
-                             includedvars = c("BL_AGE", "BMI", "SEX"),
-                             readpclrows = "") {
-    pheno <- t(microbiome::meta(phyloseq::sample_data(pseq)))
-    sample.ids <- colnames(pheno)
-    abud.rel <- abundances(pseq)
-    rownames(abud.rel) <- sapply(rownames(abud.rel), replace.brackets)
-    write.table(t(rbind(sample.ids, pheno, abud.rel)), file = tsvfile, sep='\t', quote=FALSE, row.names=FALSE, col.names=TRUE)
-    data <- file(conffile , open='wt')
-    pcl.contents <- c("Matrix: Metadata",
-                      paste(c("Read_PCL_Rows: ", paste(includedvars, collapse=",")), collapse = ""),
-                      "",
-                      "Matrix: Adundance",
-                      paste(c("Read_PCL_Rows: ", paste(readpclrows, collapse=",")), collapse = ""))
-    writeLines(pcl.contents, con=data)
-    close(data)
-}
-
- merge.pheno.abu <- function(pseq,
+merge.pheno.abu <- function(pseq,
                              core = FALSE,
                              core.detection = 0.001,
                              core.prevalence = 0.01) {
@@ -161,36 +155,6 @@ getdescriptions <- function() {
                                   "Sex is female, True for female, False for male")))
 }
 
-maaslinwrapper <- function(pseq, looped, forced, taxa, tempstr = "%s/maaslinruns/maaslin-%s")  {
-    tempdir <- sprintf(tempstr, Sys.getenv("HOME"), format(Sys.time(), '%s'))
-    dir.create(tempdir)
-    cwd <- getwd()
-    setwd(tempdir)
-    prepare.maaslin(pseq,
-                    tsvfile = "maaslin.tsv",
-                    conffile = "maaslin.config",
-                    includedvars = c(looped, forced),
-                    readpclrows = taxa)
-
-    fileConn<-file("run.R")
-    writeLines(c('.libPaths(c(.libPaths(), "~/maaslinruns/R-3.4"))',
-                 'library("Maaslin")',
-                 'Maaslin("maaslin.tsv",',
-                 '\t"maaslin",',
-                 '\tstrInputConfig = "maaslin.config",',
-                 '\tstrModelSelection="none",',
-                 '\tdSignificanceLevel = 1.0,',
-                 '\tfAllvAll = TRUE,',
-                 sprintf("\tstrForcedPredictors = \"%s\")", paste0(forced, collapse=","))), fileConn)
-    close(fileConn)
-
-    system("/apps/statistics2/R-3.4.3/bin/Rscript run.R > output.log 2> error.log")
-
-    ret <- read.table("maaslin/maaslin.txt", header=TRUE, sep='\t') %>% as.data.frame
-    setwd(cwd)
-    return(ret)
-}
-
 mygrep <- function(..., word, ignorecase = TRUE, complement = FALSE) {
     c(...)[xor(grepl(word, c(...), ignore.case = ignorecase), (complement == TRUE))]
 }
@@ -211,10 +175,13 @@ c2l <- function(...) {
     l
 }
 
-pub.p <- function(p, Nfdr = FALSE) {
+pub.p <- function(p, Nfdr = FALSE, tiny = TRUE) {
     p <- as.numeric(p)
     if (Nfdr) p <- p.adjust(p, method="BH", n = Nfdr)
-    ifelse(p < 0.01, ifelse(p<0.001, "<0.001", sprintf("%.3f", p)), sprintf("%.2f", p))
+    case_when(tiny & p < 0.001 ~ "<0.001",
+              p < 0.001 ~ sprintf("%.3e", p),
+              p >= 0.999 ~ "1",
+              TRUE ~ sprintf("%.3f", p))
 }
 
 firstup <- function(x) {
@@ -285,7 +252,7 @@ deseqresults <- function(modellist,
     vars <- c2l(names(modellist))
     lapply(c2l(vars), function(x, models = modellist) {
         name <- ifelse(x %in% hypertensionvars, sprintf("HYPERTENSION_1_vs_0", x), x)
-        results(models[[x]], name = name) %>%
+        DESeq2::results(models[[x]], name = name) %>%
             as.data.frame %>%
             tibble::rownames_to_column("Feature") }) %>%    
         map_df(., ~as.data.frame(.x), .id="name") %>%
@@ -335,10 +302,6 @@ mytableone <- function(dset, variables) {
         mutate_if(is.numeric, round, 3)
 }
 
-deseq.formula <- function(..., fo = "~ %s") {
-    as.formula(sprintf(fo, paste0(c(...), collapse = "+")))
-}
-
 deseq.list <- function(var.CL, var.CL.min) {
     l <- lapply(c2l(var.CL), function(x) {
         unique(c(var.CL.min, x))
@@ -352,23 +315,61 @@ coretaxa <- function(pseq, detection = 0.1/100, prevalence = 1/100) {
         taxa
 }
 
-pseqsubset <- function(pseq, coretaxa, saltsubset = TRUE) {
+deseq.formula <- function(..., fo = "~ %s") {
+    as.formula(sprintf(fo, paste0(c(...), collapse = "+")))
+}
+
+pseqsubset <- function(pseq, coretaxa, saltsubset = TRUE, FUN = identity) {
     exists.coretaxa <- !missing(coretaxa)
-    participants <- pseq %>% meta %>% subset(!is.na(dUNA)) %>% rownames
-    pseq %>%
-        { if (saltsubset) prune_samples(participants, .) else . } %>%
+    participants <- pseq %>% meta %>% tibble::rownames_to_column("sampleid") %>%
+        { if (saltsubset) dplyr::filter(., !is.na(dUNA)) else . } %>% FUN %>% pull(sampleid)
+    prune_samples(participants, pseq) %>%
         { if (exists.coretaxa) prune_taxa(coretaxa, .) else . }
 }
 
-myDESeq <- function(pseq, vars, coretaxa, coreterm = ".", saltsubset = FALSE) {
-    mydds.pseq <- pseqsubset(pseq, coretaxa = coretaxa, saltsubset = saltsubset)
-    mydds.data <- phyloseq_to_deseq2(mydds.pseq, deseq.formula(vars))
+myDESeq <- function(pseq, vars, coretaxa, coreterm = ".", saltsubset = FALSE, FUN = identity) {
+    mydds.pseq <- pseqsubset(pseq, coretaxa = coretaxa, saltsubset = saltsubset, FUN = FUN)
+    mydds.formula <- deseq.formula(vars)
+    mydds.data <- phyloseq_to_deseq2(mydds.pseq, mydds.formula)
     mydds.size <- estimateSizeFactors(mydds.data)
-    mydds.dispersion <- taxa(mydds.pseq) %>%
-        mygrep(word = coreterm) %>%
-        mydds.size[.,] %>%
-        estimateDispersions(fitType="parametric")
+    mydds.dispersion <- mydds.size[mygrep(word = coreterm, taxa(mydds.pseq)),] %>%
+        estimateDispersions(., fitType="parametric")
     nbinomWaldTest(mydds.dispersion)
+}
+
+myDESeq.tidy <- function(dds, plimit = 1.0) {
+    results(dds, name = "dUNA", tidy = TRUE) %>%
+        dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
+                      row = renametaxa(row),
+                      lfc_se = sprintf("%.3f±%.3f", log2FoldChange, lfcSE),
+                      qval = pub.p(qval, tiny = FALSE)) %>%
+        filter(qval < p.limit) %>%
+        select(row, lfc_se, qval)
+}
+
+myDESeq.subsets <- function(var) {
+    list("female" = list(fun = function(x) subset(x, SEX == 1),
+                         exclude = "SEX"),
+         "male" = list(fun = function(x) subset(x, SEX == 0),
+                       exclude = "SEX"),
+         "drug" = list(fun = function(x) subset(x, ANYDRUG == 1),
+                       exclude = c("BL_USE_RX_C03",
+                                   "BL_USE_RX_C07",
+                                   "BL_USE_RX_C08",
+                                   "BL_USE_RX_C09")),
+         "no-drug" = list(fun = function(x) subset(x, ANYDRUG == 0),
+                          exclude = c("BL_USE_RX_C03",
+                                      "BL_USE_RX_C07",
+                                      "BL_USE_RX_C08",
+                                      "BL_USE_RX_C09")))
+}
+
+cleanemptyfactors <- function(df, factors, FUN = function(x) filter(x, .x == 1)) {
+    exclude <- lapply(c2l(factors), function(x) df[[x]] %>% factor %>% nlevels) %>%
+        map_df(~as.data.frame(.x), .id = "var") %>%
+        FUN %>%
+        pull(var)
+    factors %difference% exclude
 }
 
 deseq.abundances <- function(dds) {
@@ -380,3 +381,48 @@ deseq.abundances <- function(dds) {
         rename_all(replace.brackets) 
 }
 
+loop.lm <- function(dset,
+                    response,
+                    loops,
+                    covariates = c()) {
+    models <- lapply(c2l(loops), function(loop) {
+        fo <- sprintf("%s ~ %s", response, paste(c(loop, covariates), collapse = " + "))
+        ret <- stats::lm(formula = as.formula(fo), data = dset, na.action = na.omit)
+        ret$call <- as.formula(fo)
+        ret
+    })
+}
+
+loop.binomial <- function(dset,
+                    response,
+                    loops,
+                    covariates = c()) {
+    stopifnot(!missing(dset), !missing(response), !missing(loops))
+    mclapply(c2l(loops), function(loop) {
+        fo <- sprintf("%s ~ %s", response, paste(c(loop, covariates), collapse = " + "))
+        ret <- stats::glm(formula = as.formula(fo),
+                          family=binomial(link='logit'),
+                          data = dset,
+                          na.action = na.omit)
+        ret$call <- as.formula(fo)
+        ret
+    }, mc.cores = min(length(loops), 8))
+}
+
+loop.results <- function(..., filterstr = "^K[0-9]*", exponentiate = FALSE) {
+    purrr::map_df(c(...), ~tidy(.x, exponentiate = exponentiate)) %>%
+        dplyr::filter(grepl(filterstr, term)) %>%
+        dplyr::mutate(conf.low = estimate - qnorm(0.975) * std.error,
+                      conf.high = estimate + qnorm(0.975) * std.error,
+                      qval = p.adjust(p.value, method="BH"))
+}
+
+mychisq.test <- function(x, y) {
+    table(x, y) %>% chisq.test() 
+}
+
+mykeggget <- function(list, index = "DEFINITION") {
+    mclapply(list, function(x) keggGet(x)[[1]][[index]], mc.cores = 8) %>%
+        unlist %>%
+        gsub(" \\[.*\\]", "", .)
+}

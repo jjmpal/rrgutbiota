@@ -68,6 +68,7 @@ library(ggeffects)
 library(pander)
 library(hexbin)
 library(readr)
+library(KEGGREST)
 ```
 
 </details>
@@ -82,7 +83,7 @@ pander(sessionInfo(), compact = TRUE)
 
 </details>
 
-# Sources
+# Import helper functions
 
 <details><summary>Functions</summary>
 
@@ -120,6 +121,7 @@ Loading phyloseq object
 pseq.species <- import_filter_data("data/phfinrisk_species_all_drop50k_2018-12-21.RDs")
 pseq.genus <- import_filter_data("data/phfinrisk_genus_all_drop50k_2018-11-16.RDs")
 pseq.genus.coretaxa <- coretaxa(pseq.genus, detection = 0.1/100, prevalence = 1/100)
+pseq.genus.core.deseq <-  prune_taxa(pseq.genus.coretaxa, pseq.genus)
 ```
 
 At species level meta has dimensions (`r dim(meta(pseq.species))`) and
@@ -138,7 +140,7 @@ var.CL <- c("BL_AGE", "SEX", "BMI", "CURR_SMOKE", "Q57X", "PREVAL_DIAB",
 
 # Heavy models
 
-### Bray curtis distance matrix
+## Bray curtis distance matrix
 
 ```{r matrix calculation}
 if (!file.exists("rds/bray.dist.m.species.rds")) {
@@ -149,7 +151,7 @@ if (!file.exists("rds/bray.dist.m.species.rds")) {
 }
 ```
 
-### Beta diversity
+## Beta diversity
 
  ```{r adonis calculation}
  if (!file.exists("rds/adonis.species.rds")) {
@@ -164,7 +166,7 @@ if (!file.exists("rds/bray.dist.m.species.rds")) {
  }
 ```
 
-### PCoA
+## PCoA
 
 ```{r pcoa calculate}
 if (!file.exists("rds/pcoa.ordinate.rds")) {
@@ -176,52 +178,82 @@ if (!file.exists("rds/pcoa.ordinate.rds")) {
 }
 ```
 
-### DeSeq2
+## DeSeq2
+
+Associations for common genera
 
 ```{r deseq2}
-if (!file.exists("rds/dds.rds") || !file.exists("rds/dds3.rds") || !file.exists("rds/ddsNa.rds")) {
-    pseq.genus.core.deseq <-  prune_taxa(pseq.genus.coretaxa, pseq.genus)
-
-    if (!file.exists("rds/dds.rds")) {
-        dds <- lapply(c2l(var.BP), function(x, pseq) {
-            dds.data <- phyloseq_to_deseq2(pseq, deseq.formula(x, var.CL))
-            DESeq(dds.data,
-                  test="Wald",
-                  fitType="parametric",
-                  parallel = TRUE,
-                  BPPARAM=MulticoreParam(16))
-        }, pseq = pseq.genus.core.deseq)
-        saveRDS(dds, file = "rds/dds.rds")
-    }
-    if (!file.exists("rds/dds3.rds")) {
-        dds3 <- lapply(deseq.list(var.CL, var.CL.min), function(x, pseq) {
-            dds.data <- phyloseq_to_deseq2(pseq, deseq.formula(x, "HYPERTENSION"))
-            DESeq(dds.data,
-                  test="Wald",
-                  fitType="parametric",
-                  parallel = TRUE,
-                  BPPARAM=MulticoreParam(16))
-        }, pseq = pseq.genus.core.deseq)
-        saveRDS(dds3, file = "rds/dds3.rds")
-    }
-    if (!file.exists("rds/ddsNa.rds")) {
-        ddsNa <- mclapply(c2l(var.BP), function(x) {
-            myDESeq(pseq = pseq.species,
-                    vars = c(x, var.CL),
-                    coreterm = "^Lactobacillus.*Bacteria")
-        }, mc.cores = length(var.BP))
-        saveRDS(ddsNa, file = "rds/ddsNa.rds")        
-    }
+if (!file.exists("rds/dds.rds")) {
+    dds <- lapply(c2l(var.BP), function(x, pseq) {
+        dds.data <- phyloseq_to_deseq2(pseq, deseq.formula(x, var.CL))
+        DESeq(dds.data,
+              test="Wald",
+              fitType="parametric",
+              parallel = TRUE,
+              BPPARAM=MulticoreParam(16))
+    }, pseq = pseq.genus.core.deseq)
+    saveRDS(dds, file = "rds/dds.rds")
 } else {
     dds <- readRDS(file = "rds/dds.rds")
-    dds3 <- readRDS(file = "rds/dds3.rds")
-    ddsNa <- readRDS(file = "rds/ddsNa.rds")
 }
 ```
 
-# Results
+The affect of third covariate for hypertension
 
-## Characteristics
+```{r deseq2 third covariate}    
+if (!file.exists("rds/dds3.rds")) {
+    dds3 <- lapply(deseq.list(var.CL, var.CL.min), function(x, pseq) {
+        dds.data <- phyloseq_to_deseq2(pseq, deseq.formula(x, "HYPERTENSION"))
+        DESeq(dds.data,
+              test="Wald",
+              fitType="parametric",
+              parallel = TRUE,
+              BPPARAM=MulticoreParam(16))
+    }, pseq = pseq.genus.core.deseq)
+    saveRDS(dds3, file = "rds/dds3.rds")
+}  else {
+    dds3 <- readRDS(file = "rds/dds3.rds")
+}
+```
+
+Associations for Lactobacili
+
+```{r deseq2 lactobacilli}
+if (!file.exists("rds/ddsLactobacilli.rds")) {
+    ddsLactobacilli <- mclapply(c2l(var.BP), function(x) {
+        myDESeq(pseq = pseq.species,
+                vars = c(x, var.CL),
+                coreterm = "^Lactobacillus.*Bacteria")
+    }, mc.cores = length(var.BP))
+    saveRDS(ddsLactobacilli, file = "rds/ddsLactobacilli.rds")
+} else {
+    ddsLactobacilli <- readRDS(file = "rds/ddsLactobacilli.rds")
+}
+```
+
+Subgroup analyses for Lactobacilli
+
+```{r heavy subgroup analyses for lactobasilli-BP}
+if (!file.exists("rds/ddsSubLactobacilli.rds")) {
+    ddsSubLactobacilli <- lapply(myDESeq.subsets(), function(subset) {
+        mclapply(c2l(var.BP), function(bp) {
+            myDESeq(pseq = pseq.species,
+                    vars = bp %union% var.CL %difference% subset$exclude,
+                    coreterm = "^Lactobacillus.*Bacteria",
+                    FUN = subset$fun)
+        }, mc.cores = length(var.BP))
+    })
+    saveRDS(ddsSubLactobacilli, file = "rds/ddsSubLactobacilli.rds")
+} else {
+    ddsSubLactobacilli <- readRDS(file = "rds/ddsSubLactobacilli.rds")
+}
+
+#ddsSubLactobacilli <-  readRDS(file = "rds/ddsSub-temp.rds") %>%
+#    purrr::list_modify(drug = readRDS(file = "rds/ddsSubLactobacilli.rds")$drug)
+```
+
+
+# Characteristics
 
 ```{r Characteristics}
 characteristicsTable(meta(pseq.species)) %>% kable
@@ -238,7 +270,39 @@ pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE) %>%
 
 </details>
 
-## Microbial diversity
+<details><summary>Chi-square tests and t-tests</summary>
+
+```{r chi squared}
+lapply(c2l(var.CL, var.BP), function(x) {
+    meta(pseq.species) %>%
+        mutate(nagroup = ifelse(is.na(dUNA), 1, 0)) %$%
+        { if (x %in% c("BL_AGE", "BMI", "MAP", "SYSTM", "DIASM", "PULSEPRESSURE"))
+              a <<- t.test(as.formula(sprintf("%s ~ nagroup", x))) 
+          else
+              table(nagroup, .[[x]]) %>%
+                  chisq.test() } %>%
+        tidy}) %>%
+    map_df(~.x, .id = "term") %>%
+    mutate (p.value = pub.p(p.value)) %>%
+    select(term, p.value)
+```
+
+```{r chi squared multilevel}
+lapply(c2l(1, 2, 3), function(x) 
+    meta(pseq.species) %>%
+    mutate(nagroup = ifelse(is.na(dUNA), 1, 0),
+           Q57X = ifelse(Q57X == x, 1, 0)) %$%
+    table(nagroup, Q57X) %>%
+    chisq.test() %>%
+    tidy) %>%
+    map_df(~.x, .id = "term") %>%
+    mutate (p.value = pub.p(p.value)) %>%
+    select(term, p.value)
+```
+
+</details>
+
+# Alpha and beta diversity plots
 
 ```{r alphabeta definitions}
 diversity <- diversities(pseq = pseq.species,
@@ -261,7 +325,7 @@ ggsave(file = "cache/alpha-beta.png", plot = g.diversity, height = 6, width = 9)
 
 <img src="cache/alpha-beta.png" />
 
-## Principal coordinate analysis
+# Principal coordinate analysis
 
 ```{r pcoa plot, echo = FALSE}
 pcoa.plot <- pcoaplot(pcoa.ordinate)
@@ -270,8 +334,8 @@ ggsave(file = "cache/pcoa-species.png", plot=pcoa.plot, height=3.0, width=6, uni
 
 <img src="cache/pcoa-species.png" />
 
-## Associations for genera
-
+# Associations between genera and blood pressure indices
+	
 ```{r deseq continuous}
 dset.deseq.signf <- deseqresults(dds, names.dset)
 g.deseq <- deseqheatmap(dset.deseq.signf)
@@ -281,7 +345,7 @@ Significant associations found between blood pressure indices and N:o `r nrow(ds
 genera and N:o `r dset.deseq.signf %>% pull(Feature) %>% unique %>% length` features. N:o 
 `r dset.deseq.signf %>% filter(log2FoldChange > 0) %>% nrow` positive associations found.
 
-### Associations for hypertension looping covariates
+## N:o associations for hypertension per included 3rd covariate
 
 Base model had 
 `r sum(results(dds3$BL_AGE, name = "HYPERTENSION_1_vs_0")$padj < 0.05, na.rm = TRUE)`
@@ -295,10 +359,10 @@ deseqresults(dds3, names.dset, hypertensionvars = names(dds3)) %>%
     kable
 ```
 
-## Associations for Lactobacillus species
+# Associations between Lactobacilli and blood pressure indices
 
 ```{r lactobacillus species results}
-dset.deseq.signf.na <- deseqresults(ddsNa, names.dset)
+dset.deseq.signf.na <- deseqresults(ddsLactobacilli, names.dset)
 g.deseq.na <- deseqheatmap(dset.deseq.signf.na)
 ```
 
@@ -323,26 +387,13 @@ ggsave(file = "cache/deseq-full.png", plot = g.deseq, width = 14, height = 25, d
 <img src="cache/deseq-full.png" />
 
 
-## Salt subset
-
-## Association between genera and dU-NA
-
-```{r lacto deseq calculation}
-pseq.genus.salt <- pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE)
-```
-
-Lactobacillus prevalence in subsample `r sprintf("%.1f%%", 100*pseq_prevalence(pseq.genus.salt))`. 
-Levels of dU-Na `r sprintf("%.1f (%.1f)", mean(meta(pseq.genus)$dUNA, na.rm = TRUE), 
-	sd(meta(pseq.genus)$dUNA, na.rm = TRUE))`
-
+# Association between Lactobacillus genus and urinary sodium
 
 ```{r significant results for salt subset}
-dds.salt <- myDESeq(pseq = pseq.genus,
+(dds.salt <- myDESeq(pseq = pseq.genus,
                     coretaxa = pseq.genus.coretaxa,
                     vars = c("dUNA", var.CL),
-                    saltsubset = TRUE)
-
-dds.salt %>%
+                    saltsubset = TRUE)) %>%
     results(., name = "dUNA", tidy = TRUE) %>%
     dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
                   lfc_se = sprintf("%.4f±%.4f", log2FoldChange, lfcSE)) %>%
@@ -354,6 +405,7 @@ dds.salt %>%
 Graphical representation for findings
 
 ```{r salt subset char}
+pseq.genus.salt <- pseqsubset(pseq.genus, coretaxa = pseq.genus.coretaxa, saltsubset = TRUE)
 df.genus.salt <- saltdset(pseq.genus.salt, dds.salt)
 ```
 
@@ -367,19 +419,15 @@ df.genus.salt %>%
 
 Mean urinary salt `r df.genus.salt$dUNA %>% mean` and sd `r df.genus.salt$dUNA %>% sd`.
 
-## Association between Lactobacilli and dU-NA
+# Association between Lactobacilli and urinary sodium
+
+Analysis between *Lactobacilli* and urinary salt. 
 
 ```{r species salt}
-dds.salt.species <- myDESeq(pseq = pseq.species,
+( dds.salt.species <- myDESeq(pseq = pseq.species,
                         vars = c("dUNA", var.CL),
                         coreterm = "^Lactobacillus.*Bacteria",
-                        saltsubset = TRUE)
-```
-
-Significant results after FDR correction
-
-```{r species salt results}
-dds.salt.species %>%
+                        saltsubset = TRUE) ) %>%
     results(., name = "dUNA", tidy = TRUE) %>%
     dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
                   row = renametaxa(row)) %>%
@@ -388,49 +436,250 @@ dds.salt.species %>%
     kable
 ```
 
-Prevalence for L. paracasei is
-`r pseq_prevalence_format(pseq.species, "Lactobacillus_paracasei (Bacteria)")`.
-and for L. salivarius is 
-`r pseq_prevalence_format(pseq.species, "Lactobacillus_salivarius (Bacteria)")`. 
+```{r test}
+dds.salt.species %>%
+      results(., name = "dUNA", tidy = TRUE) %>%
+    dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
+                  row = renametaxa(row)) %>%
+                                        #    filter(qval < 0.05) %>%
+    arrange(qval) %>%
+    mutate(qval_exp = sprintf("%.4e", qval)) %>%
+    kable
+```
+
+```{r species salt}
+dds.salt.species %>%
+    results(., name = "SEX_1_vs_0", tidy = TRUE) %>%
+    dplyr::mutate(qval = p.adjust(pvalue, method="BH"),
+                  row = renametaxa(row)) %>%
+    filter(qval < 0.05) %>%
+    mutate(qval_exp = sprintf("%.4e", qval)) %>%
+    kable
+```
+
+The box plot for *Lactobacilli* groups and urinary salt to demonstrate the association.
 
 ```{r species plot}
-df.species.salt <- deseq.abundances(dds.salt.species) %>%
+( df.species.salt <- deseq.abundances(dds.salt.species) %>%
     full_join(deseq.abundances(dds.salt), by = "sampleid") %>%
     left_join(meta(pseq.species) %>% tibble::rownames_to_column("sampleid"), by = "sampleid") %>%
     mutate_at(vars(contains('Lactobacillus')), .funs = list(group = ~factor(dplyr::ntile(., 4)))) %>%
     select(dUNA,
            Lactobacillus_paracasei.Bacteria_group,
            Lactobacillus_salivarius.Bacteria_group,
-           Lactobacillus.Bacteria_group)
-
-df.species.salt %>%
-    saltboxplot %>%
+           Lactobacillus.Bacteria_group) ) %>%
     gather(taxa, abundance, -dUNA) %>%
+    saltboxplot %>%
     ggsave(file = "cache/boxplot-lacto-salt.png", plot = ., height = 3, width = 3.5, dpi = 300, unit = "in")
 ```
 
 <img src = "cache/boxplot-lacto-salt.png" />
 
-Urinary sodium quartiles for L. paracei
+Mean and SD for urinary sodium quartiles
 
 ```{r species salt levels paracasei, echo = FALSE}
-df.species.salt %>%
-    group_by(Lactobacillus_paracasei.Bacteria_group) %>%
-    summarize(mean = round(mean(dUNA), 1),
-              sd = round(sd(dUNA), 1)) %>%
+lapply(c2l(df.species.salt %>% select(contains("Lactobacillus")) %>% colnames),
+       function(x) df.species.salt %>%
+                   dplyr::rename(group = !!x) %>%
+                   group_by(group) %>%
+                   summarize(mean = round(mean(dUNA), 2),
+                             sd = round(sd(dUNA), 2)) ) %>%
+    map_df(~as.data.frame(.x), .id = "taxa")  %>%
+    mutate(taxa = renametaxa(taxa)) %>%
     kable
 ```
 
-Urinary sodium quartiles for L. salivarius
+# Subgroup analyses
 
-```{r salt levels salivarius, echo = FALSE}
-df.species.salt %>%
-    group_by(Lactobacillus_salivarius.Bacteria_group) %>%
-    summarize(mean = round(mean(dUNA), 1),
-              sd = round(sd(dUNA), 1)) %>%
+## Sex
+
+```{r deseq dual plot, echo = FALSE}
+g.ddssub.male <- ddsSubLactobacilli$male %>%
+    deseqresults(., names.dset) %>%
+    deseqheatmap(breaks = seq(-2, 2)) %>%
+    { . + theme(legend.position = "none",
+                plot.title = element_text(size = 12, face = "plain")) } %>%
+    myggtitle(., title= "A. Men")
+
+g.ddssub.female <- ddsSubLactobacilli$female %>%
+    deseqresults(., names.dset) %>%
+    deseqheatmap(breaks = seq(-2, 2)) %>%
+    { g.ddssub.female.raw <<- . } %>%
+    { . + theme(legend.position = "none",
+                 plot.title = element_text(size = 12, face = "plain")) } %>%
+    myggtitle(., title= "B. Women")
+
+g.ddssub.legend <- get_legend(g.ddssub.female.raw) %>% as_ggplot
+
+g.deseq.subsample.sex <- arrangeGrob(g.ddssub.male,
+                                     g.ddssub.female,
+                                     g.ddssub.legend ,
+                                     ncol = 3,
+                                     widths = c(2, 2, 1))
+ggsave(file = "cache/deseq-subsample-sex.png",
+       plot = g.deseq.subsample.sex,
+       width = 17,
+       height = 11,
+       dpi = 300,
+       unit = "cm")
+```
+
+## Antihypertensive
+
+```{r deseq dual plot, echo = FALSE}
+g.ddssub.nodrug <- ddsSubLactobacilli$nodrug %>%
+    purrr::list_modify(HYPERTENSION = NULL) %>%
+    deseqresults(., names.dset) %>%
+    deseqheatmap(breaks = seq(-2, 2)) %>%
+    { . + theme(legend.position = "none",
+                 plot.title = element_text(size = 12, face = "plain")) } %>%
+    myggtitle(., title= "A. No antihypertensive medication use")
+
+g.ddssub.drug <- ddsSubLactobacilli$drug %>%
+    purrr::list_modify(HYPERTENSION = NULL) %>%
+    deseqresults(., names.dset) %>%
+    deseqheatmap(breaks = seq(-2, 2)) %>%
+    { . + theme(legend.position = "none",
+                plot.title = element_text(size = 12, face = "plain")) } %>%
+    myggtitle(., title= "B. Antihypertensive medication use")
+
+g.deseq.subsample.drug <- arrangeGrob(g.ddssub.nodrug,
+                                      g.ddssub.drug,
+                                      g.ddssub.legend,
+                                     ncol = 3,
+                                     widths = c(2, 2, 1))
+ggsave(file = "cache/deseq-subsample-drug.png",
+       plot = g.deseq.subsample.drug,
+       width = 19,
+       height = 14.2,
+       dpi = 300,
+       unit = "cm")
+```
+
+
+# Sodium subsample
+
+```{r subset salt sex}
+( ddsSubLactobacilliSodium <- mclapply(myDESeq.subsets(), mc.cores = 4, function(subset)
+    myDESeq(pseq = pseq.species,
+            vars = "dUNA" %union% var.CL %difference% subset$exclude,
+            coreterm = "^Lactobacillus.*Bacteria",
+            saltsubset = TRUE,
+            FUN = subset$fun)) ) %>%
+    myDESeq.tidy() %>%
+    map_df(~.x, .id = "subgroup") %>%
     kable
 ```
 
+```{r subset salt sex}
+ddsSubLactobacilliSodium %>%
+    myDESeq.tidy()) %>%
+    map_df(~.x, .id = "subgroup") %>%
+    kable
+```
+
+## Lactobacilli prevalences
+
+Prevalence
+
+```{r prevalence 0.01%}
+lapply(pseq.species %>% taxa %>% mygrep(word = "^Lactobacillus_", .) %>% c2l, function(x) 
+    pseq_prevalence(pseq.species, taxa = x, limit = 0.01/100)) %>%
+    tibble::enframe() %>% 
+    unnest(cols = value) %>%
+    arrange(desc(value)) %>%
+    kable
+
+
+females <- pseq.species %>%
+    meta %>%
+    tibble::rownames_to_column("sampleid") %>%
+    filter(SEX == 1) %>%
+    pull(sampleid)
+
+males <- pseq.species %>%
+    meta %>%
+    tibble::rownames_to_column("sampleid") %>%
+    filter(SEX == 0) %>%
+    pull(sampleid)
+
+taxa(pseq.species) %>% mygrep(word = "Salivarius")
+
+pseq_prevalence(prune_samples(males, pseq.species), limit = 0.01/100, taxa = "Lactobacillus_paracasei (Bacteria)")
+pseq_prevalence(prune_samples(females, pseq.species), limit = 0.01/100, taxa = "Lactobacillus_paracasei (Bacteria)")
+
+
+```
+
+```{r prevalence 0.1%}
+lapply(c("Lactobacillus_paracasei (Bacteria)", "Lactobacillus_salivarius (Bacteria)") %>% c2l, function(x) 
+    pseq_prevalence(pseq.species, taxa = x, limit = 0.1/100)) %>%
+    tibble::enframe() %>% 
+    unnest(cols = value) %>%
+    arrange(desc(value)) %>%
+    kable
+```
+
+
+# Functional analysis
+
+```{r import KEGG data}
+dset.ko  <- readRDS("data/function_activity_copied_20200213.rds")$ko %>%
+    as.data.frame %>%
+    rownames_to_column(var = "term") %>%
+    gather(sampleid, value, -term) %>% 
+    spread(term, value) %>%
+    mutate_at(vars(starts_with("K")), ~scale(log10(. + 1))) %>%
+    left_join(meta(pseq.species) %>% rownames_to_column(var = "sampleid"), by = "sampleid")
+```
+
+```{r model KEGG}
+ret.ko <- loop.lm(dset = dset.ko,
+               response = "SYSTM",
+               loops = dset.ko %>% colnames %>% mygrep(word = "^K[0-9]+"),
+               covariates = var.CL) %>%
+    loop.results()
+```
+
+```{r process KEGG results}
+ret.ko %>%
+    filter(qval < 0.05) %>%
+    arrange(qval) %>%
+    mutate(mean_ci = sprintf("%.2f (%.2f to %.2f)", estimate, conf.low, conf.high),
+           qval = pub.p(qval)) %>%
+    mutate(desc = mykeggget(term)) %>%
+    select(term, desc, mean_ci, qval) %>%
+    kable
+```
+
+<details><summary>Diagnostic plots</summary>
+
+```{r KEGG qq plots}
+diagnosticqqplot(dset.ko, ret.ko %>% filter(qval < 0.05) %>% pull(term)) %>%
+    ggsave(file = "cache/kegg.png", plot = ., height = 40, width = 10, dpi = 300, unit = "in")
+```
+
+<img src = "cache/kegg.png" />
+
+```{r KEGG scatter plots}
+diagnosticscatterplot(dset.ko,
+                      ret.ko %>% filter(qval < 0.05) %>% pull(term),
+                      SYSTM) %>%
+    ggsave(file = "cache/kegg-scatter.png", plot = ., height = 40, width = 10, dpi = 300, unit = "in")
+```
+
+<img src = "cache/kegg-scatter.png" />
+
+</details>
+
+```{r process KEGG results}
+ret.ko %>%
+    filter(qval < 0.05, estimate < 0) %>%
+    mutate(term = paste0("n-", term),
+           size = paste0("v-", 1/qval)) %>%
+    select(term, size) %>%
+    write_tsv(path = "cache/functree_negative.tsv", col_names = FALSE)
+```
 
 # Supplements
 

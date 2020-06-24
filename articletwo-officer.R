@@ -47,7 +47,7 @@ characteristicsTable <- function(dset, strata) {
                       printToggle = FALSE,
                       digits = 1,
                       pDigits = 3,
-                      contDigits=1)  %>%
+                      contDigits=2)  %>%
         as.data.frame %>%
         tibble::rownames_to_column(var = "rowname") %>%
         format(justify = "left", trim = TRUE) %>%

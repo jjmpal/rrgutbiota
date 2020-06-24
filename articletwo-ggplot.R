@@ -1,4 +1,6 @@
 plot.alpha <- function(diversity,
+                       palette = "Blues",
+                       palettedirection = -1,
                        alphabreaks = seq(-1, 0, 0.2),
                        alphalabels = c("(-1.0, -0.8]", "(-0.8, -0.6]", "(-0.6, -0.4]", "(-0.4, -0.2]", "(-0.2, -0.0]")) {
     diversity <- diversity %>%
@@ -14,10 +16,10 @@ plot.alpha <- function(diversity,
                                                   fill = estimate_fac)) +
         geom_bar(stat="identity", color="black") +
         coord_flip() +
-        scale_fill_brewer(palette="Blues",
+        scale_fill_brewer(palette=palette,
                           name = 'Regression coefficient \nin linear model \nfor Shannon index',
                           drop=FALSE,
-                          direction = -1) +
+                          direction = palettedirection) +
         theme_classic(20) +
         geom_point(aes(Name, y=0.5, shape=Qstar), show.legend=FALSE, color='black', size=14) +
         scale_shape_manual(name="",
@@ -179,7 +181,7 @@ plot.diversities <- function(diversities) {
     return(g4)
 }
 
-deseqheatmap <- function(df, legend.name = "Log Base Two\nFold Change") {
+deseqheatmap <- function(df, legend.name = "Log Base Two\nFold Change", breaks = c(-1, -0.5, 0.5, 0, 1)) {
     ggplot(df,
            aes(x = reorder(Name, deseqplotorder(Name)),
                y = ordered(Feature, levels=rev(sort(unique(Feature)))),
@@ -188,8 +190,8 @@ deseqheatmap <- function(df, legend.name = "Log Base Two\nFold Change") {
         geom_tile(colour="white") +
         scale_fill_distiller(palette = "RdBu",
                              name = legend.name,
-                             limits=c(-1, 1),
-                             breaks = c(-1, -0.5, 0.5, 0, 1),
+                             limits = c(min(breaks), max(breaks)),
+                             breaks = breaks,
                              na.value="grey30") +
         coord_fixed(ratio=1) +
         xlab("") +
@@ -263,12 +265,17 @@ saltdset <- function(pseq, dds) {
 saltboxplot.names <- function() {
     c("Lactobacillus_paracasei.Bacteria_group" = "L. paracasei",
       "Lactobacillus_salivarius.Bacteria_group" = "L. salivarius",
-      "Lactobacillus.Bacteria_group" = "Lactobacillus")
+      "Lactobacillus.Bacteria_group" = "Lactobacillus",
+      "Lactobacillus_paracasei.Bacteria" = "L. paracasei",
+      "Lactobacillus_salivarius.Bacteria" = "L. salivarius",
+      "Lactobacillus.Bacteria" = "Lactobacillus")
 }
 
 saltboxplot <- function(df) {
     ggplot(data = df, aes(x = abundance, y = dUNA)) +
-        facet_wrap(~taxa, strip.position = "bottom", labeller = labeller(taxa = saltboxplot.names())) +
+        facet_wrap(~taxa,
+                   strip.position = "bottom",
+                   labeller = labeller(taxa = saltboxplot.names())) +
         geom_boxplot(lwd=0.1, outlier.shape = NA, notch = FALSE, fill = "gray96") +
         geom_jitter(alpha = 0.05, size = 0.4, width = 0.3, shape = 20) +
         scale_x_discrete(labels=c("1" = "Q1",
@@ -284,6 +291,24 @@ saltboxplot <- function(df) {
               strip.text.x = element_text(size = 9, vjust = 2.0, face = "italic"),
               axis.title = element_text(size = 9))
 }
+
+saltscatterplot <- function(df) {
+    ggplot(data = df, aes(x = abundance, y = dUNA)) +
+        facet_wrap(~taxa,
+                   strip.position = "bottom",
+                   labeller = labeller(taxa = saltboxplot.names())) +
+        geom_jitter(alpha = 0.05, size = 0.4, width = 0.3, shape = 20) +
+        scale_y_log10() +
+        scale_x_log10() +
+        ylab("24-hour urinary sodium [mmol]") +
+        theme_classic() +
+        theme(axis.title.x=element_blank(),
+              strip.background = element_blank(),
+              strip.placement = "bottom",
+              strip.text.x = element_text(size = 9, vjust = 2.0, face = "italic"),
+              axis.title = element_text(size = 9))
+}
+
 
 pcoaplot <- function(pcoa) {
     pcoa.vectors <- pcoa$vectors %>% as.data.frame
@@ -334,3 +359,34 @@ pca.kde2d <- function(pcoa, htn = 0, n = 500) {
 
     kde2d(pcoa.df$Axis.1, pcoa.df$Axis.2, n = n)
 }
+
+diagnosticqqplot <- function(dset, vars) {
+    dplyr::select(dset, vars) %>%
+        gather(key, value) %>%
+        ggplot2::ggplot(ggplot2::aes(sample = value)) +
+        facet_wrap(~key, ncol = 12, scales = "free_y") +
+        stat_qq(size = 0.1) +
+        stat_qq_line(color = "gray") +
+        theme_classic() +
+        theme(legend.position = "none")
+}
+
+diagnosticscatterplot <- function(dset, vars, y) {
+    dplyr::select(dset, vars, !!enquo(y)) %>%
+        gather(key, value, -!!enquo(y)) %>%
+        ggplot2::ggplot(ggplot2::aes(x = value, y = !!enquo(y))) +
+        facet_wrap(~key, ncol = 12) +
+        geom_point(shape = ".") +
+        geom_smooth(method=lm) +
+        theme_classic() +
+        theme(legend.position = "none")
+}
+
+myggtitle <- function(plot, title = "") {
+    g <- gtable_frame(ggplotGrob(plot + ggtitle(title)), width = unit(25, 'mm'))
+    temp <- g$grobs[[1]]
+    g$grobs[[1]] <- g$grobs[[4]]
+    g$grobs[[4]] <- temp
+    gtable_rbind(g, egg::.dummy_gtable)
+}
+
