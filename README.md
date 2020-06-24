@@ -1,17 +1,17 @@
 # Association Between Gut Microbiota and Blood Pressure in a Population Cohort of 6953 Individuals
 
-## Background
+This repository contains the source code for our manuscript accepted to JAHA. The code has two main purposes (1) to allow critical review of the manuscript and (2) to make replication of the analyses easier for the scientific community. The data used in our manuscript are available from [Finnish Institute for Health and Welfare Biobank](https://thl.fi/en/web/thl-biobank).
 
-Several small-scale animal studies have suggested that gut microbiota, assessed using 16S ribosomal RNA gene amplification, and blood pressure (BP) are linked. However, results from human studies remain scarce and partially conflicting. Our goal was to elucidate the association between the gut metagenome and BP in a large, representative, well-phenotyped population sample while adjusting for relevant confounders. 
+## Directory structure
 
-## Purpose
-
-This *github* repository contains the R-code used in the analysis of our scientific paper that is currenlty submitted to scientific journal. The code is published to advance transparent scientific research and to make reviewing and replicating results reasonable.
-
-## Content
-
--	*articletwo.Rmd* The main analysis file
-- *articletwo-20200201-075314.html* The final results (open in browser)
--	*articletwo-rrbiome.R* Main helper functions for modelling
--	*articletwo-ggplot.R* Helper functions for plotting
--	*articletwo-officer.R* Helper functions for tables
+````
+rrnmr/
+├── README.md                             # project overview
+├── LICENCE                               # project licence
+├── articletwo.Rmd                        # Main computation f
+├── articletwo-import.R                   # Collection of functions for data import and definition
+├── articletwo-ggplot.R                   # Collection of functions for plotting
+├── articletwo-rrbiome.R                  # Collection of functions for modeling
+├── articletwo-officer.R                  # Collection of functions for creating characteristics and tables
+├── articletwo-sensitivityanalysis.Rmd    # Sensitivity analyses requested by reviewers
+````
