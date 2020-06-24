@@ -1,6 +1,6 @@
 # Association Between Gut Microbiota and Blood Pressure in a Population Cohort of 6953 Individuals
 
-This repository contains the source code for our manuscript accepted to JAHA. The code has two main purposes (1) to allow critical review of the manuscript and (2) to make replication of the analyses easier for the scientific community. The data used in our manuscript are available from [Finnish Institute for Health and Welfare Biobank](https://thl.fi/en/web/thl-biobank).
+This repository contains the source code for our manuscript accepted to be published in JAHA (2020). The code has two main purposes (1) to allow critical review of the manuscript and (2) to make replication of the analyses easier for the scientific community. The data used in our manuscript are available from [Finnish Institute for Health and Welfare Biobank](https://thl.fi/en/web/thl-biobank).
 
 ## Directory structure
 
